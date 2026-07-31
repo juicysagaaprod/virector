@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +10,17 @@ class Settings(BaseSettings):
     """Application settings shared by local and cloud deployments."""
 
     data_dir: Path = Path("./data")
+    environment: Literal["local", "staging", "production"] = "local"
+    storage_backend: Literal["local", "s3"] = "local"
+    s3_endpoint_url: str | None = None
+    s3_region: str = "auto"
+    s3_bucket: str | None = None
+    s3_key_prefix: str = "virector"
+    s3_access_key_id: SecretStr | None = Field(default=None, repr=False)
+    s3_secret_access_key: SecretStr | None = Field(default=None, repr=False)
+    s3_presigned_url_ttl_seconds: int = Field(default=900, ge=60, le=86400)
+    database_url: SecretStr | None = Field(default=None, repr=False)
+    supabase_url: str | None = None
     models_dir_override: Path | None = Field(
         default=None,
         validation_alias="VIRECTOR_MODELS_DIR",
@@ -93,6 +104,34 @@ class Settings(BaseSettings):
             self.models_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
+
+    def validate_cloud_configuration(self) -> None:
+        """Reject partial cloud configuration before accepting render jobs."""
+
+        if self.storage_backend != "s3":
+            return
+
+        required = {
+            "VIRECTOR_S3_ENDPOINT_URL": self.s3_endpoint_url,
+            "VIRECTOR_S3_BUCKET": self.s3_bucket,
+            "VIRECTOR_S3_ACCESS_KEY_ID": self.s3_access_key_id,
+            "VIRECTOR_S3_SECRET_ACCESS_KEY": self.s3_secret_access_key,
+        }
+        missing = []
+        for name, value in required.items():
+            if isinstance(value, SecretStr):
+                configured = bool(value.get_secret_value().strip())
+            elif isinstance(value, str):
+                configured = bool(value.strip())
+            else:
+                configured = value is not None
+            if not configured:
+                missing.append(name)
+        if missing:
+            raise ValueError(
+                "S3-compatible storage is enabled but required settings are "
+                f"missing: {', '.join(missing)}."
+            )
 
 
 @lru_cache

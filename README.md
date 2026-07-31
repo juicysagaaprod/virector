@@ -23,6 +23,30 @@ The optional LTX runtime uses the official LTX-Video 2B distilled checkpoint
 through Diffusers. If the runtime or CUDA is unavailable, Virector reports the
 reason through `/api/health` and safely falls back to the mock worker.
 
+## Cloud staging foundation
+
+Virector keeps generated artifacts behind a storage interface. Local development
+continues to use `VIRECTOR_STORAGE_BACKEND=local`. Staging and production can use
+any private S3-compatible service, with Cloudflare R2 as the recommended media
+store. Completed job manifests, references, internal conditioning images and
+videos are uploaded under:
+
+```text
+<key-prefix>/renders/<job-id>/
+```
+
+Video responses keep the stable Virector API route and redirect to a short-lived
+presigned download URL. The bucket does not need to be public.
+
+Copy `.env.staging.example` into the deployment platform's secret manager and
+replace every placeholder. Never commit a populated `.env.staging` file. When
+`VIRECTOR_STORAGE_BACKEND=s3`, startup rejects missing endpoint, bucket or access
+credentials instead of silently writing ephemeral container files.
+
+The Supabase connection settings are reserved in the staging template for the
+next milestone: persistent users, projects and render-job state. Until that job
+repository is connected, `MockWorker` should remain the staging default.
+
 ## GitHub Codespaces preview
 
 Select **Open in GitHub Codespaces** above, create the Codespace, and wait for

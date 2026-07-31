@@ -2,7 +2,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import ValidationError
 
 from virector.models.shot_spec import (
@@ -16,6 +16,7 @@ from virector.services.references import (
     build_reference_directives,
     validate_prompt_reference_tags,
 )
+from virector.services.storage import ArtifactStorageError
 
 
 def build_api(job_service: JobService) -> APIRouter:
@@ -83,6 +84,8 @@ def build_api(job_service: JobService) -> APIRouter:
                 )
         except (OSError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ArtifactStorageError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
         video_url = None
         if result.video:
@@ -94,16 +97,26 @@ def build_api(job_service: JobService) -> APIRouter:
             "message": result.message,
         }
 
-    @router.get("/renders/{job_id}/video", response_class=FileResponse)
-    def get_render_video(job_id: str) -> FileResponse:
+    @router.get("/renders/{job_id}/video")
+    def get_render_video(job_id: str) -> Response:
         if len(job_id) != 32 or any(
             character not in "0123456789abcdef" for character in job_id
         ):
             raise HTTPException(status_code=404, detail="Render not found.")
-        video_path = job_service.settings.outputs_dir / job_id / "preview.mp4"
-        if not video_path.is_file():
+        try:
+            location = job_service.artifact_store.get_video_location(job_id)
+        except ArtifactStorageError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        if location is None:
             raise HTTPException(status_code=404, detail="Render video not found.")
-        return FileResponse(video_path, media_type="video/mp4", filename="preview.mp4")
+        if location.path is not None:
+            return FileResponse(
+                location.path,
+                media_type="video/mp4",
+                filename="preview.mp4",
+            )
+        assert location.url is not None
+        return RedirectResponse(location.url, status_code=307)
 
     @router.post("/compose")
     async def compose(
@@ -135,6 +148,8 @@ def build_api(job_service: JobService) -> APIRouter:
                     )
         except (OSError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ArtifactStorageError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
         return {
             "job_id": result.job_id,

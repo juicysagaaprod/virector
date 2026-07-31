@@ -12,6 +12,7 @@ from virector.services.compositor import (
     prepare_reference_start_frame,
 )
 from virector.services.references import build_reference_directives
+from virector.services.storage import ArtifactStore, create_artifact_store
 from virector.workers.base import (
     ReferenceAsset,
     RenderJob,
@@ -30,9 +31,15 @@ class JobArtifacts:
 
 
 class JobService:
-    def __init__(self, settings: Settings, worker: VideoWorker) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        worker: VideoWorker,
+        artifact_store: ArtifactStore | None = None,
+    ) -> None:
         self.settings = settings
         self.worker = worker
+        self.artifact_store = artifact_store or create_artifact_store(settings)
 
     def create(
         self,
@@ -73,7 +80,7 @@ class JobService:
             encoding="utf-8",
         )
 
-        return self.worker.render(
+        result = self.worker.render(
             RenderJob(
                 job_id=job_id,
                 output_dir=job_dir,
@@ -94,6 +101,8 @@ class JobService:
                 ),
             )
         )
+        self.artifact_store.publish_job(job_id, job_dir)
+        return result
 
     def create_from_references(
         self,
@@ -183,7 +192,7 @@ class JobService:
             encoding="utf-8",
         )
 
-        return self.worker.render(
+        result = self.worker.render(
             RenderJob(
                 job_id=job_id,
                 output_dir=job_dir,
@@ -193,3 +202,5 @@ class JobService:
                 reference_assets=reference_assets,
             )
         )
+        self.artifact_store.publish_job(job_id, job_dir)
+        return result
