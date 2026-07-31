@@ -1,10 +1,13 @@
 from pathlib import Path
 
+from pytest import MonkeyPatch
+
 from virector.config import Settings
 from virector.models.shot_spec import ShotSpec
 from virector.workers.base import RenderJob
 from virector.workers.factory import create_worker
-from virector.workers.ltx import LtxWorker
+from virector.workers.ltx import LtxWorker, LtxWorkerUnavailableError
+from virector.workers.ltx_diffusers import build_ltx_prompt, ltx_frame_count
 from virector.workers.mock import MockWorker
 
 
@@ -13,6 +16,11 @@ class FakeLtxBackend:
         video = job.output_dir / "preview.mp4"
         video.write_bytes(b"fake video")
         return video
+
+
+class FailingLtxBackend:
+    def render(self, job: RenderJob) -> Path:
+        raise RuntimeError("not enough GPU memory")
 
 
 def test_factory_selects_mock_by_default(tmp_path: Path) -> None:
@@ -25,7 +33,17 @@ def test_factory_selects_mock_by_default(tmp_path: Path) -> None:
     assert worker.fallback_reason is None
 
 
-def test_factory_falls_back_when_ltx_backend_is_missing(tmp_path: Path) -> None:
+def test_factory_falls_back_when_ltx_backend_is_missing(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def unavailable_backend(settings: Settings):
+        raise LtxWorkerUnavailableError("The LTX runtime is not installed.")
+
+    monkeypatch.setattr(
+        "virector.workers.factory._create_default_ltx_backend",
+        unavailable_backend,
+    )
     settings = Settings(data_dir=tmp_path, worker_mode="ltx")
 
     worker = create_worker(settings)
@@ -33,7 +51,7 @@ def test_factory_falls_back_when_ltx_backend_is_missing(tmp_path: Path) -> None:
     assert isinstance(worker, MockWorker)
     assert worker.requested_mode == "ltx"
     assert worker.fallback_reason is not None
-    assert "not configured" in worker.fallback_reason
+    assert "not installed" in worker.fallback_reason
 
 
 def test_ltx_worker_uses_injected_backend(tmp_path: Path) -> None:
@@ -54,3 +72,36 @@ def test_ltx_worker_uses_injected_backend(tmp_path: Path) -> None:
     assert result.status == "completed"
     assert result.video == tmp_path / "preview.mp4"
     assert result.video.is_file()
+
+
+def test_ltx_worker_returns_backend_failure(tmp_path: Path) -> None:
+    start_frame = tmp_path / "start_frame.png"
+    start_frame.write_bytes(b"fake image")
+    job = RenderJob(
+        job_id="failed-job",
+        output_dir=tmp_path,
+        start_frame=start_frame,
+        spec=ShotSpec(prompt="A controlled cinematic character entrance."),
+    )
+    worker = LtxWorker(backend=FailingLtxBackend())
+
+    result = worker.render(job)
+
+    assert result.status == "failed"
+    assert result.video is None
+    assert "not enough GPU memory" in result.message
+
+
+def test_ltx_preview_uses_compatible_four_second_frame_count() -> None:
+    assert ltx_frame_count(4.0, 24, max_frames=97) == 97
+    assert ltx_frame_count(15.0, 24, max_frames=96) == 89
+
+
+def test_ltx_prompt_contains_structured_direction() -> None:
+    spec = ShotSpec(prompt="The lead crosses the room.")
+
+    prompt = build_ltx_prompt(spec)
+
+    assert "stands naturally" in prompt
+    assert "50mm lens" in prompt
+    assert "cinematic natural light" in prompt

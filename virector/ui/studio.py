@@ -30,9 +30,9 @@ def create_studio(job_service: JobService) -> gr.Blocks:
         lens_mm: int,
         lighting: str,
         seed: int,
-    ) -> tuple[str | None, str, str]:
+    ) -> tuple[str | None, str | None, str, str]:
         if not character_image or not world_image:
-            return None, "Upload both images.", "{}"
+            return None, None, "Upload both images.", "{}"
 
         ratio = AspectRatio(aspect_ratio)
         width, height = RESOLUTION_PRESETS[ratio]
@@ -64,6 +64,7 @@ def create_studio(job_service: JobService) -> gr.Blocks:
         )
         return (
             str(result.start_frame),
+            str(result.video) if result.video else None,
             f"{result.message} Job: {result.job_id}",
             spec.model_dump_json(indent=2),
         )
@@ -85,6 +86,7 @@ def create_studio(job_service: JobService) -> gr.Blocks:
                 image_mode="RGB",
             )
             output_image = gr.Image(label="Composed start frame", interactive=False)
+            output_video = gr.Video(label="Generated preview", interactive=False)
 
         with gr.Row():
             with gr.Column():
@@ -184,7 +186,7 @@ def create_studio(job_service: JobService) -> gr.Blocks:
                 lighting,
                 seed,
             ],
-            outputs=[output_image, status, shot_json],
+            outputs=[output_image, output_video, status, shot_json],
         )
 
     return studio

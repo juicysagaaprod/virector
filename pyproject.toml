@@ -25,6 +25,17 @@ dev = [
   "httpx==0.28.1",
   "pytest==8.4.1",
 ]
+ltx = [
+  "accelerate==1.14.0",
+  "bitsandbytes==0.50.0",
+  "diffusers==0.39.0",
+  "imageio[ffmpeg]==2.37.4",
+  "protobuf==7.35.1",
+  "sentencepiece==0.2.2",
+  "torch==2.12.0",
+  "torchvision==0.27.0",
+  "transformers==4.57.6",
+]
 
 [tool.setuptools.packages.find]
 include = ["virector*"]

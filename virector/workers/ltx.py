@@ -40,10 +40,24 @@ class LtxWorker(VideoWorker):
         self.ensure_ready()
         assert self._backend is not None
 
-        video = Path(self._backend.render(job))
+        try:
+            video = Path(self._backend.render(job))
+        except Exception as exc:
+            return RenderResult(
+                job_id=job.job_id,
+                status="failed",
+                start_frame=job.start_frame,
+                message=f"LTX preview failed: {exc}",
+            )
         if not video.is_file():
-            raise FileNotFoundError(
-                f"The LTX backend did not create its declared output: {video}"
+            return RenderResult(
+                job_id=job.job_id,
+                status="failed",
+                start_frame=job.start_frame,
+                message=(
+                    "LTX preview failed: the backend did not create its "
+                    f"declared output: {video}"
+                ),
             )
 
         return RenderResult(
