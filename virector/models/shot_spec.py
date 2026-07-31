@@ -10,6 +10,12 @@ class AspectRatio(str, Enum):
     social = "4:5"
 
 
+class OutputResolution(str, Enum):
+    preview = "Preview"
+    p720 = "720p"
+    p1080 = "1080p"
+
+
 class CameraDirection(BaseModel):
     shot_size: str = Field(default="medium", max_length=40)
     movement: str = Field(default="static", max_length=80)
@@ -48,7 +54,10 @@ class ShotSpec(BaseModel):
         ),
         max_length=2000,
     )
+    video_model: str = Field(default="ltx-video-2b-distilled", max_length=120)
+    reference_mode: str = Field(default="omni", pattern="^(omni|layered)$")
     aspect_ratio: AspectRatio = AspectRatio.portrait
+    output_resolution: OutputResolution = OutputResolution.preview
     width: int = Field(default=480, ge=256, le=4096)
     height: int = Field(default=832, ge=256, le=4096)
     duration_seconds: float = Field(default=4.0, ge=1.0, le=15.0)
@@ -78,3 +87,20 @@ RESOLUTION_PRESETS: dict[AspectRatio, tuple[int, int]] = {
     AspectRatio.social: (512, 640),
 }
 
+OUTPUT_RESOLUTION_PRESETS: dict[
+    OutputResolution, dict[AspectRatio, tuple[int, int]]
+] = {
+    OutputResolution.preview: RESOLUTION_PRESETS,
+    OutputResolution.p720: {
+        AspectRatio.portrait: (720, 1280),
+        AspectRatio.landscape: (1280, 720),
+        AspectRatio.square: (720, 720),
+        AspectRatio.social: (720, 900),
+    },
+    OutputResolution.p1080: {
+        AspectRatio.portrait: (1080, 1920),
+        AspectRatio.landscape: (1920, 1080),
+        AspectRatio.square: (1080, 1080),
+        AspectRatio.social: (1080, 1350),
+    },
+}

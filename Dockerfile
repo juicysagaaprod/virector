@@ -3,18 +3,23 @@ FROM python:3.10-slim
 ARG INSTALL_LTX=0
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
 COPY pyproject.toml README.md ./
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    mkdir -p virector && touch virector/__init__.py && \
+    python -m pip install --upgrade pip && \
+    python -m pip install ".[dev]" && \
+    if [ "$INSTALL_LTX" = "1" ]; then python -m pip install ".[ltx]"; fi && \
+    rm -rf virector
+
 COPY virector ./virector
 COPY tests ./tests
 
-RUN python -m pip install --upgrade pip && \
-    python -m pip install ".[dev]" && \
-    if [ "$INSTALL_LTX" = "1" ]; then python -m pip install ".[ltx]"; fi
+ENV PYTHONPATH=/app
 
 EXPOSE 8000
 

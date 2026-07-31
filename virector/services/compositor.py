@@ -82,3 +82,21 @@ def compose_start_frame(
     canvas.convert("RGB").save(output_path, format="PNG", optimize=True)
     return output_path
 
+
+def prepare_reference_start_frame(
+    reference_path: str | Path,
+    spec: ShotSpec,
+    output_path: str | Path,
+) -> Path:
+    """Prepare the first omni reference as an LTX-compatible start frame."""
+
+    reference_path = Path(reference_path)
+    output_path = Path(output_path)
+    if not reference_path.is_file():
+        raise FileNotFoundError(f"Reference image not found: {reference_path}")
+
+    with Image.open(reference_path) as source:
+        frame = _cover(source.convert("RGB"), (spec.width, spec.height))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    frame.save(output_path, format="PNG", optimize=True)
+    return output_path

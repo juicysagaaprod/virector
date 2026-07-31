@@ -11,6 +11,7 @@ class RenderJob:
     output_dir: Path
     start_frame: Path
     spec: ShotSpec
+    reference_images: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)

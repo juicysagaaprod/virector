@@ -106,13 +106,22 @@ The selected low-memory path:
 - uses `ltxv-2b-0.9.8-distilled.safetensors`;
 - loads the T5 text encoder in 4-bit, encodes the prompt, then unloads it;
 - runs the video transformer with sequential CPU offload;
-- generates 97 frames for a four-second preview at 24 fps; and
+- chains LTX-compatible segments to generate 1–15 seconds at 24 fps;
+- accepts one ordered set of omni reference images;
+- offers native preview, 720p and 1080p output; and
 - enables VAE tiling before exporting H.264 MP4.
 
 An RTX 5060 8GB validation render completed at 480x832. The initial model setup
 is slow and needs about 27GB of persistent model/cache storage. Once initialized,
 the eight denoising steps took about two minutes; total time also includes model
-loading and final video decoding.
+loading and final video decoding. Longer clips chain additional segments. The
+720p and 1080p choices upscale after native generation to keep local VRAM use
+within the 8GB target.
+
+The local LTX pipeline accepts one start frame. Studio therefore uses the first
+omni reference as the opening frame and copies the entire ordered reference set
+into the job's `references` directory. The worker contract exposes those files
+for a future VACE/Omni backend that can condition on all references directly.
 
 To run a direct smoke test with a start frame already created by the Studio:
 
@@ -131,14 +140,15 @@ E:\Virector\outputs\ltx-smoke\preview.mp4
 
 ## First test
 
-1. Upload a transparent PNG containing one character.
-2. Upload a world/background image.
-3. Select `9:16`.
-4. Adjust character scale and horizontal/vertical placement.
-5. Enter action, expression and camera instructions.
-6. Select **Compose start frame**.
+1. Upload one or more images in **Omni reference images**.
+2. Put the intended opening frame first; add character, wardrobe, prop and
+   world-design images after it.
+3. Describe the entire shot in the single **Direction prompt**.
+4. Select the aspect ratio, resolution and a length from 1–15 seconds.
+5. Select **Generate video**.
 
-The generated frame and its `shot_spec.json` are written to:
+The references, prepared start frame, `shot_spec.json` and generated MP4 are
+written to:
 
 ```text
 E:\Virector\outputs\<job-id>\
@@ -165,13 +175,13 @@ virector/
   ui/studio.py            Gradio director interface
 tests/
   test_compositor.py
+  test_jobs.py
   test_shot_spec.py
   test_workers.py
 ```
 
 ## Next milestone
 
-Use a real character/world composition for the next quality render, add
-per-stage progress reporting, and keep the loaded runtime warm between jobs.
-After that, add continuation jobs for 8, 12 and 15-second clips. A cloud worker
-will consume the same `ShotSpec` and return the same `RenderResult`.
+Connect a true multi-reference VACE/Omni backend, add per-stage progress
+reporting, and keep the loaded runtime warm between jobs. A cloud worker will
+consume the same `ShotSpec`, ordered reference set and `RenderResult`.

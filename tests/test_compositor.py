@@ -3,7 +3,10 @@ from pathlib import Path
 from PIL import Image
 
 from virector.models.shot_spec import CharacterDirection, ShotSpec
-from virector.services.compositor import compose_start_frame
+from virector.services.compositor import (
+    compose_start_frame,
+    prepare_reference_start_frame,
+)
 
 
 def test_compositor_creates_requested_frame(tmp_path: Path) -> None:
@@ -28,3 +31,17 @@ def test_compositor_creates_requested_frame(tmp_path: Path) -> None:
         assert composed.size == (480, 832)
         assert composed.mode == "RGB"
 
+
+def test_omni_reference_prepares_first_image_as_start_frame(
+    tmp_path: Path,
+) -> None:
+    reference = tmp_path / "reference.png"
+    output = tmp_path / "start_frame.png"
+    Image.new("RGB", (1200, 800), (30, 60, 90)).save(reference)
+    spec = ShotSpec(prompt="A slow cinematic move through the scene.")
+
+    prepare_reference_start_frame(reference, spec, output)
+
+    with Image.open(output) as frame:
+        assert frame.size == (480, 832)
+        assert frame.mode == "RGB"

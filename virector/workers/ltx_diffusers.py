@@ -1,10 +1,15 @@
 import gc
 import importlib.util
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from virector.config import Settings
-from virector.models.shot_spec import ShotSpec
+from virector.models.shot_spec import (
+    OUTPUT_RESOLUTION_PRESETS,
+    OutputResolution,
+    ShotSpec,
+)
 from virector.workers.base import RenderJob
 from virector.workers.ltx import LtxBackend, LtxWorkerUnavailableError
 
@@ -19,28 +24,61 @@ def ltx_frame_count(duration_seconds: float, fps: int, max_frames: int) -> int:
 
 
 def build_ltx_prompt(spec: ShotSpec) -> str:
-    """Translate structured direction into one chronological LTX prompt."""
+    """Return the director's single authoritative direction prompt."""
 
-    return " ".join(
-        part.strip()
-        for part in (
-            spec.prompt,
-            f"{spec.character.name} {spec.character.action}.",
-            f"The expression is {spec.character.expression}.",
-            f"The character faces {spec.character.facing}.",
-            (
-                f"Camera: {spec.camera.shot_size} shot, "
-                f"{spec.camera.movement}, {spec.camera.lens_mm}mm lens, "
-                f"focus on {spec.camera.focus_target}."
-            ),
-            (
-                f"Lighting: {spec.lighting.style}, "
-                f"{spec.lighting.time_of_day}, "
-                f"{spec.lighting.colour_grade}."
-            ),
-        )
-        if part.strip()
-    )
+    return spec.prompt.strip()
+
+
+def ltx_segment_frame_counts(
+    duration_seconds: float,
+    fps: int,
+    max_frames: int,
+) -> list[int]:
+    """Split a requested duration into LTX-compatible ``8n + 1`` segments."""
+
+    total_intervals = max(8, round(duration_seconds * fps))
+    total_intervals = max(8, round(total_intervals / 8) * 8)
+    max_segment_intervals = ((max_frames - 1) // 8) * 8
+    if max_segment_intervals < 8:
+        raise ValueError("LTX max_frames must allow at least nine frames.")
+
+    segments: list[int] = []
+    remaining = total_intervals
+    while remaining:
+        intervals = min(remaining, max_segment_intervals)
+        segments.append(intervals + 1)
+        remaining -= intervals
+    return segments
+
+
+def _upscale_video(
+    source: Path,
+    output: Path,
+    width: int,
+    height: int,
+) -> None:
+    import imageio_ffmpeg
+
+    command = [
+        imageio_ffmpeg.get_ffmpeg_exe(),
+        "-y",
+        "-i",
+        str(source),
+        "-vf",
+        f"scale={width}:{height}:flags=lanczos",
+        "-c:v",
+        "libx264",
+        "-crf",
+        "18",
+        "-preset",
+        "medium",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(output),
+    ]
+    subprocess.run(command, check=True, capture_output=True)
 
 
 @dataclass(frozen=True)
@@ -164,16 +202,19 @@ class DiffusersLtxBackend(LtxBackend):
         else:
             pipeline.to("cuda")
 
-        num_frames = ltx_frame_count(
+        segment_frame_counts = ltx_segment_frame_counts(
             job.spec.duration_seconds,
             job.spec.fps,
             self.settings.ltx_max_frames,
         )
         generator = torch.Generator(device="cuda").manual_seed(job.spec.seed)
         with Image.open(job.start_frame) as source:
-            image = source.convert("RGB")
+            conditioning_image = source.convert("RGB")
+
+        frames = []
+        for segment_index, num_frames in enumerate(segment_frame_counts):
             result = pipeline(
-                image=image,
+                image=conditioning_image,
                 prompt=None,
                 prompt_embeds=prompt_embeds,
                 prompt_attention_mask=prompt_attention_mask,
@@ -187,7 +228,26 @@ class DiffusersLtxBackend(LtxBackend):
                 decode_noise_scale=0.025,
                 generator=generator,
             )
+            segment_frames = result.frames[0]
+            frames.extend(
+                segment_frames if segment_index == 0 else segment_frames[1:]
+            )
+            conditioning_image = segment_frames[-1].convert("RGB")
 
         output = job.output_dir / "preview.mp4"
-        export_to_video(result.frames[0], str(output), fps=job.spec.fps)
+        if job.spec.output_resolution == OutputResolution.preview:
+            export_to_video(frames, str(output), fps=job.spec.fps)
+            return output
+
+        native_output = job.output_dir / "preview-native.mp4"
+        export_to_video(frames, str(native_output), fps=job.spec.fps)
+        output_width, output_height = OUTPUT_RESOLUTION_PRESETS[
+            job.spec.output_resolution
+        ][job.spec.aspect_ratio]
+        _upscale_video(
+            source=native_output,
+            output=output,
+            width=output_width,
+            height=output_height,
+        )
         return output

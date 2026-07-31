@@ -7,7 +7,11 @@ from virector.models.shot_spec import ShotSpec
 from virector.workers.base import RenderJob
 from virector.workers.factory import create_worker
 from virector.workers.ltx import LtxWorker, LtxWorkerUnavailableError
-from virector.workers.ltx_diffusers import build_ltx_prompt, ltx_frame_count
+from virector.workers.ltx_diffusers import (
+    build_ltx_prompt,
+    ltx_frame_count,
+    ltx_segment_frame_counts,
+)
 from virector.workers.mock import MockWorker
 
 
@@ -97,11 +101,20 @@ def test_ltx_preview_uses_compatible_four_second_frame_count() -> None:
     assert ltx_frame_count(15.0, 24, max_frames=96) == 89
 
 
-def test_ltx_prompt_contains_structured_direction() -> None:
+def test_ltx_duration_is_chained_through_fifteen_seconds() -> None:
+    assert ltx_segment_frame_counts(1.0, 24, max_frames=97) == [25]
+    assert ltx_segment_frame_counts(4.0, 24, max_frames=97) == [97]
+    assert ltx_segment_frame_counts(15.0, 24, max_frames=97) == [
+        97,
+        97,
+        97,
+        73,
+    ]
+
+
+def test_ltx_prompt_uses_single_direction_box_verbatim() -> None:
     spec = ShotSpec(prompt="The lead crosses the room.")
 
     prompt = build_ltx_prompt(spec)
 
-    assert "stands naturally" in prompt
-    assert "50mm lens" in prompt
-    assert "cinematic natural light" in prompt
+    assert prompt == "The lead crosses the room."
