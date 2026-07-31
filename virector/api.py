@@ -13,7 +13,16 @@ def build_api(job_service: JobService) -> APIRouter:
 
     @router.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok", "worker": job_service.worker.__class__.__name__}
+        worker = job_service.worker
+        payload = {
+            "status": "ok",
+            "worker": worker.__class__.__name__,
+            "worker_mode": worker.mode,
+            "requested_worker_mode": worker.requested_mode,
+        }
+        if worker.fallback_reason:
+            payload["fallback_reason"] = worker.fallback_reason
+        return payload
 
     @router.post("/compose")
     async def compose(
@@ -55,4 +64,3 @@ def build_api(job_service: JobService) -> APIRouter:
         }
 
     return router
-

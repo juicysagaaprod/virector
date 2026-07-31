@@ -7,11 +7,11 @@ from virector.api import build_api
 from virector.config import get_settings
 from virector.services.jobs import JobService
 from virector.ui.studio import create_studio
-from virector.workers.mock import MockWorker
+from virector.workers.factory import create_worker
 
 
 settings = get_settings()
-worker = MockWorker()
+worker = create_worker(settings)
 job_service = JobService(settings=settings, worker=worker)
 
 
@@ -39,4 +39,3 @@ def root() -> dict[str, str]:
         "docs": "/docs",
         "health": "/api/health",
     }
-

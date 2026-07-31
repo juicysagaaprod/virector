@@ -15,9 +15,10 @@ The starter includes:
 - Docker configuration
 - Tests for shot validation and image composition
 
-The current worker is intentionally a mock. It produces and saves the controlled
-start frame. The next milestone connects the worker interface to LTX-Video for a
-four-second image-to-video preview.
+The default worker is intentionally a mock. It produces and saves the controlled
+start frame. Set `VIRECTOR_WORKER_MODE=ltx` to request the scaffolded LTX worker.
+Until an inference backend is configured, Virector reports the reason through
+`/api/health` and safely falls back to the mock worker.
 
 ## Recommended Windows folder
 
@@ -97,22 +98,24 @@ virector/
   services/jobs.py        Job orchestration and manifests
   workers/base.py         Model-independent worker contract
   workers/mock.py         Milestone 1A start-frame worker
+  workers/ltx.py          Backend-neutral LTX adapter
+  workers/factory.py      Configured worker selection and fallback
   ui/studio.py            Gradio director interface
 tests/
   test_compositor.py
   test_shot_spec.py
+  test_workers.py
 ```
 
 ## Next milestone
 
-Implement `LTXWorker` behind the existing `VideoWorker` interface:
+Implement an `LtxBackend` behind the existing `LtxWorker` adapter:
 
 ```python
-class LTXWorker(VideoWorker):
-    def render(self, job: RenderJob) -> RenderResult:
+class LocalLtxBackend:
+    def render(self, job: RenderJob) -> Path:
         ...
 ```
 
 No API or studio rewrite is required. A cloud worker will consume the same
 `ShotSpec` and return the same `RenderResult`.
-

@@ -23,7 +23,10 @@ class RenderResult:
 
 
 class VideoWorker(ABC):
+    mode: str
+    requested_mode: str
+    fallback_reason: str | None = None
+
     @abstractmethod
     def render(self, job: RenderJob) -> RenderResult:
         """Render one job and return stable output metadata."""
-
