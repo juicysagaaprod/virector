@@ -13,7 +13,11 @@ from virector.workers.ltx_diffusers import (
     ltx_segment_frame_counts,
 )
 from virector.workers.mock import MockWorker
-from virector.workers.vace import VaceWorker
+from virector.workers.vace import VaceWorker, VaceWorkerUnavailableError
+from virector.workers.vace_diffusers import (
+    evaluate_vace_hardware,
+    vace_frame_count,
+)
 
 
 class FakeLtxBackend:
@@ -137,7 +141,17 @@ def test_factory_selects_injected_vace_backend(tmp_path: Path) -> None:
     assert worker.requested_mode == "vace"
 
 
-def test_vace_mode_falls_back_to_injected_ltx_backend(tmp_path: Path) -> None:
+def test_vace_mode_falls_back_to_injected_ltx_backend(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def unavailable_backend(settings: Settings):
+        raise VaceWorkerUnavailableError("The VACE worker is unavailable.")
+
+    monkeypatch.setattr(
+        "virector.workers.factory._create_default_vace_backend",
+        unavailable_backend,
+    )
     settings = Settings(data_dir=tmp_path, worker_mode="vace")
 
     worker = create_worker(settings, ltx_backend=FakeLtxBackend())
@@ -145,7 +159,7 @@ def test_vace_mode_falls_back_to_injected_ltx_backend(tmp_path: Path) -> None:
     assert isinstance(worker, LtxWorker)
     assert worker.requested_mode == "vace"
     assert worker.fallback_reason is not None
-    assert "self-hosted" in worker.fallback_reason
+    assert "VACE worker" in worker.fallback_reason
 
 
 def test_vace_worker_passes_indexed_references_to_backend(
@@ -175,3 +189,41 @@ def test_vace_worker_passes_indexed_references_to_backend(
 
     assert result.status == "completed"
     assert result.video == tmp_path / "vace-preview.mp4"
+
+
+def test_vace_frame_count_is_wan_compatible() -> None:
+    assert vace_frame_count(1, fps=16, max_frames=81) == 17
+    assert vace_frame_count(4, fps=16, max_frames=81) == 65
+    assert vace_frame_count(15, fps=16, max_frames=81) == 81
+
+
+def test_vace_preflight_blocks_insufficient_worker_ram() -> None:
+    report = evaluate_vace_hardware(
+        cuda_available=True,
+        gpu_name="Test GPU",
+        gpu_total_gb=8.15,
+        gpu_free_gb=6.5,
+        system_total_gb=7.56,
+        system_available_gb=6.0,
+        disk_free_gb=100,
+        checkpoint_present=False,
+    )
+
+    assert not report.supported
+    assert "system RAM" in report.blockers[0]
+
+
+def test_vace_preflight_accepts_guarded_quantized_worker() -> None:
+    report = evaluate_vace_hardware(
+        cuda_available=True,
+        gpu_name="Test GPU",
+        gpu_total_gb=24,
+        gpu_free_gb=23,
+        system_total_gb=64,
+        system_available_gb=48,
+        disk_free_gb=100,
+        checkpoint_present=False,
+    )
+
+    assert report.supported
+    assert not report.blockers

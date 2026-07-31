@@ -33,8 +33,17 @@ class Settings(BaseSettings):
     ltx_text_encoder_4bit: bool = True
     ltx_cpu_offload: bool = True
     vace_model_name: str = "Wan2.1-VACE-1.3B"
+    vace_model_repo: str = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
     vace_repo_dir: Path | None = None
     vace_checkpoint_dir: Path | None = None
+    vace_inference_steps: int = Field(default=8, ge=1, le=50)
+    vace_guidance_scale: float = Field(default=5.0, ge=1.0, le=20.0)
+    vace_fps: int = Field(default=16, ge=8, le=24)
+    vace_max_frames: int = Field(default=81, ge=5, le=81)
+    vace_quantize_4bit: bool = True
+    vace_cpu_offload: bool = True
+    vace_allow_download: bool = False
+    vace_ignore_preflight: bool = False
     cors_origins: str = "http://localhost:3000"
     host: str = "0.0.0.0"
     port: int = 8000
@@ -60,6 +69,12 @@ class Settings(BaseSettings):
     @property
     def models_dir(self) -> Path:
         return self.models_dir_override or self.data_dir / "models"
+
+    @property
+    def vace_checkpoint_path(self) -> Path:
+        return self.vace_checkpoint_dir or (
+            self.models_dir / "Wan2.1-VACE-1.3B-diffusers"
+        )
 
     @property
     def allowed_cors_origins(self) -> list[str]:

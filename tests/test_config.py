@@ -60,3 +60,16 @@ def test_cors_origins_are_split_and_trimmed(tmp_path: Path) -> None:
         "http://localhost:3000",
         "https://virector.example.com",
     ]
+
+
+def test_vace_checkpoint_defaults_to_persistent_models_dir(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VIRECTOR_MODELS_DIR", raising=False)
+    monkeypatch.delenv("VIRECTOR_VACE_CHECKPOINT_DIR", raising=False)
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+
+    assert settings.vace_checkpoint_path == (
+        tmp_path / "models" / "Wan2.1-VACE-1.3B-diffusers"
+    )

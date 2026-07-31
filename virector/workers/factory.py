@@ -22,9 +22,11 @@ def _create_default_ltx_backend(settings: Settings) -> LtxBackend:
 
 
 def _create_default_vace_backend(settings: Settings) -> VaceBackend:
-    raise VaceWorkerUnavailableError(
-        f"The self-hosted {settings.vace_model_name} runtime is not installed."
-    )
+    from virector.workers.vace_diffusers import DiffusersVaceBackend
+
+    backend = DiffusersVaceBackend(settings=settings)
+    backend.ensure_available()
+    return backend
 
 
 def create_worker(

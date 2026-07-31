@@ -180,17 +180,45 @@ shown in Studio. All uploaded references remain available to the VACE/Omni worke
 
 `VaceWorker` is the self-hosted multi-reference worker boundary. It receives the
 complete indexed reference set and the prompt containing `@imageN` instructions.
-The heavyweight VACE inference runtime is not installed in this milestone. If
-`VIRECTOR_WORKER_MODE=vace` is selected now, Virector reports that fact and uses
-the configured LTX preview backend; if LTX is unavailable it safely uses the
-mock worker.
+`DiffusersVaceBackend` connects that boundary to the official
+`Wan-AI/Wan2.1-VACE-1.3B-diffusers` checkpoint, passes every ordered reference
+image to `WanVACEPipeline`, and uses 4-bit quantization plus sequential CPU
+offload for the guarded local path.
+
+Run the hardware preflight before downloading the 19GB checkpoint:
+
+```powershell
+docker compose exec virector python -m virector.vace_preflight
+```
+
+The command reports visible CUDA memory, worker RAM, persistent model storage,
+warnings and hard blockers. It will not download anything. Once preflight
+passes, explicitly download the checkpoint with:
+
+```powershell
+docker compose exec virector python -m virector.vace_preflight --download
+```
+
+Automatic downloads from web render requests remain disabled by default. This
+prevents an accidental 19GB transfer or an unsafe model load. After a successful
+download, set `VIRECTOR_WORKER_MODE=vace` and rebuild the service.
+
+On the original 16GB Windows host, Docker exposes approximately 8.12GB decimal
+RAM to the worker. The guarded VACE path requires at least 10GB visible worker
+RAM and therefore stops before downloading or loading the checkpoint. LTX
+remains the active fallback until the Docker memory allocation or physical RAM
+is increased.
 
 The persistent locations for the upcoming runtime are configurable in `.env`:
 
 ```dotenv
 VIRECTOR_VACE_MODEL_NAME=Wan2.1-VACE-1.3B
+VIRECTOR_VACE_MODEL_REPO=Wan-AI/Wan2.1-VACE-1.3B-diffusers
 VIRECTOR_VACE_REPO_DIR=/data/models/VACE
-VIRECTOR_VACE_CHECKPOINT_DIR=/data/models/Wan2.1-VACE-1.3B
+VIRECTOR_VACE_CHECKPOINT_DIR=/data/models/Wan2.1-VACE-1.3B-diffusers
+VIRECTOR_VACE_QUANTIZE_4BIT=true
+VIRECTOR_VACE_CPU_OFFLOAD=true
+VIRECTOR_VACE_ALLOW_DOWNLOAD=false
 ```
 
 To run a direct smoke test with a start frame already created by the Studio:
@@ -242,8 +270,10 @@ virector/
   workers/ltx.py          Backend-neutral LTX adapter
   workers/ltx_diffusers.py Low-memory Diffusers LTX backend
   workers/vace.py         Indexed multi-reference worker boundary
+  workers/vace_diffusers.py Guarded Diffusers VACE backend and preflight
   workers/factory.py      Configured worker selection and fallback
   ltx_smoke.py            Direct four-second LTX smoke-render command
+  vace_preflight.py       Hardware probe and explicit model download command
   ui/studio.py            Gradio director interface
 web/
   app/page.tsx            Production director interface
@@ -261,8 +291,8 @@ tests/
 
 ## Next milestone
 
-Install VACE 1.3B in an isolated GPU worker image, connect it to `VaceWorker`,
-and run a local multi-reference preflight within the RTX 5060's 8GB VRAM limit.
-Then add per-stage progress reporting and keep the loaded runtime warm between
-jobs. A cloud worker will consume the same `ShotSpec`, tagged reference set and
-`RenderResult`.
+Increase worker-visible RAM to at least 10GB, rerun the guarded preflight, then
+download VACE 1.3B and attempt a one-second 480p multi-reference render. For
+smooth local work, upgrade the host to 64GB before keeping the quantized runtime
+warm. Then add per-stage progress reporting and continuation chaining. A cloud
+worker will consume the same `ShotSpec`, tagged reference set and `RenderResult`.

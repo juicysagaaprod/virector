@@ -8,6 +8,7 @@ from virector.workers.vace import (
     VaceWorker,
     VaceWorkerUnavailableError,
 )
+from virector.workers.vace_diffusers import DiffusersVaceBackend
 
 __all__ = [
     "LtxBackend",
@@ -20,6 +21,7 @@ __all__ = [
     "RenderResult",
     "VideoWorker",
     "VaceBackend",
+    "DiffusersVaceBackend",
     "VaceWorker",
     "VaceWorkerUnavailableError",
     "create_worker",
