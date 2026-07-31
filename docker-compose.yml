@@ -1,0 +1,13 @@
+services:
+  virector:
+    build:
+      context: .
+    container_name: virector-starter
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - "E:/Virector:/data"
+    restart: unless-stopped
+

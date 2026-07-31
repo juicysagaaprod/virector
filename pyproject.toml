@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "virector"
+version = "0.1.0"
+description = "Cloud-ready director-control scaffold for local AI video generation"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "fastapi==0.115.14",
+  "gradio==5.35.0",
+  "numpy==2.2.6",
+  "pillow==11.2.1",
+  "pydantic==2.11.7",
+  "pydantic-settings==2.10.1",
+  "python-multipart==0.0.20",
+  "requests==2.32.4",
+  "uvicorn[standard]==0.34.3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx==0.28.1",
+  "pytest==8.4.1",
+]
+
+[tool.setuptools.packages.find]
+include = ["virector*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
