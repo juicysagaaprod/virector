@@ -6,7 +6,6 @@ from virector.models.shot_spec import (
     AspectRatio,
     OutputResolution,
     ReferenceDirective,
-    ReferenceRole,
     ShotSpec,
 )
 
@@ -53,37 +52,33 @@ def test_shot_accepts_contiguous_unique_reference_directives() -> None:
         references=[
             ReferenceDirective(
                 index=1,
-                tag="@character",
-                role=ReferenceRole.character,
+                tag="@image1",
             ),
             ReferenceDirective(
                 index=2,
-                tag="@world",
-                role=ReferenceRole.world,
+                tag="@image2",
             ),
         ],
     )
 
     assert [reference.tag for reference in shot.references] == [
-        "@character",
-        "@world",
+        "@image1",
+        "@image2",
     ]
 
 
-def test_shot_rejects_duplicate_reference_tags() -> None:
-    with pytest.raises(ValidationError, match="tags must be unique"):
+def test_shot_rejects_reference_tags_outside_upload_order() -> None:
+    with pytest.raises(ValidationError, match="must match upload order"):
         ShotSpec(
             prompt="The lead crosses the designed world.",
             references=[
                 ReferenceDirective(
                     index=1,
-                    tag="@character",
-                    role=ReferenceRole.character,
+                    tag="@image1",
                 ),
                 ReferenceDirective(
                     index=2,
-                    tag="@character",
-                    role=ReferenceRole.character,
+                    tag="@image1",
                 ),
             ],
         )
@@ -96,8 +91,7 @@ def test_shot_rejects_noncontiguous_reference_indexes() -> None:
             references=[
                 ReferenceDirective(
                     index=2,
-                    tag="@world",
-                    role=ReferenceRole.world,
+                    tag="@image2",
                 )
             ],
         )

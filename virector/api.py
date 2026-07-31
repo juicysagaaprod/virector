@@ -58,7 +58,6 @@ def build_api(job_service: JobService) -> APIRouter:
         return {
             "job_id": result.job_id,
             "status": result.status,
-            "start_frame": str(result.start_frame),
             "video": str(result.video) if result.video else None,
             "message": result.message,
         }

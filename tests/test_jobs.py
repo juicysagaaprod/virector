@@ -4,7 +4,7 @@ from pathlib import Path
 from PIL import Image
 
 from virector.config import Settings
-from virector.models.shot_spec import ReferenceDirective, ReferenceRole, ShotSpec
+from virector.models.shot_spec import ReferenceDirective, ShotSpec
 from virector.services.jobs import JobService
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
 
@@ -39,15 +39,11 @@ def test_job_service_retains_ordered_omni_references(tmp_path: Path) -> None:
         reference_directives=[
             ReferenceDirective(
                 index=1,
-                tag="@character",
-                role=ReferenceRole.character,
-                description="lead identity",
+                tag="@image1",
             ),
             ReferenceDirective(
                 index=2,
-                tag="@world",
-                role=ReferenceRole.world,
-                description="city location",
+                tag="@image2",
             ),
         ],
     )
@@ -59,13 +55,12 @@ def test_job_service_retains_ordered_omni_references(tmp_path: Path) -> None:
         "reference-02.jpg",
     ]
     assert [asset.tag for asset in worker.job.reference_assets] == [
-        "@character",
-        "@world",
+        "@image1",
+        "@image2",
     ]
-    assert worker.job.reference_assets[0].description == "lead identity"
     manifest = json.loads(
         (worker.job.output_dir / "shot_spec.json").read_text(encoding="utf-8")
     )
     assert len(manifest["assets"]["reference_images"]) == 2
-    assert manifest["assets"]["references"][0]["role"] == "character"
-    assert manifest["assets"]["references"][1]["tag"] == "@world"
+    assert manifest["assets"]["references"][0]["tag"] == "@image1"
+    assert manifest["assets"]["references"][1]["tag"] == "@image2"

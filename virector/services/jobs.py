@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from virector.config import Settings
-from virector.models.shot_spec import ReferenceDirective, ReferenceRole, ShotSpec
+from virector.models.shot_spec import ReferenceDirective, ShotSpec
 from virector.services.compositor import (
     compose_start_frame,
     prepare_reference_start_frame,
@@ -83,14 +83,12 @@ class JobService:
                 reference_assets=(
                     ReferenceAsset(
                         index=1,
-                        tag="@character",
-                        role=ReferenceRole.character,
+                        tag="@image1",
                         path=Path(character_path),
                     ),
                     ReferenceAsset(
                         index=2,
-                        tag="@world",
-                        role=ReferenceRole.world,
+                        tag="@image2",
                         path=Path(world_path),
                     ),
                 ),
@@ -103,7 +101,7 @@ class JobService:
         spec: ShotSpec,
         reference_directives: list[ReferenceDirective] | None = None,
     ) -> RenderResult:
-        """Create a job from one ordered, role-tagged reference image set."""
+        """Create a job from one ordered, @imageN-tagged reference image set."""
 
         if not reference_paths:
             raise ValueError("Upload at least one omni reference image.")
@@ -140,9 +138,7 @@ class JobService:
             ReferenceAsset(
                 index=directive.index,
                 tag=directive.tag,
-                role=directive.role,
                 path=path,
-                description=directive.description,
                 strength=directive.strength,
             )
             for directive, path in zip(directives, saved_references, strict=True)
@@ -173,8 +169,6 @@ class JobService:
                     {
                         "index": asset.index,
                         "tag": asset.tag,
-                        "role": asset.role.value,
-                        "description": asset.description,
                         "strength": asset.strength,
                         "path": str(asset.path.resolve()),
                     }

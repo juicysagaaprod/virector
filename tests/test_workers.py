@@ -3,7 +3,7 @@ from pathlib import Path
 from pytest import MonkeyPatch
 
 from virector.config import Settings
-from virector.models.shot_spec import ReferenceRole, ShotSpec
+from virector.models.shot_spec import ShotSpec
 from virector.workers.base import ReferenceAsset, RenderJob
 from virector.workers.factory import create_worker
 from virector.workers.ltx import LtxWorker, LtxWorkerUnavailableError
@@ -148,7 +148,7 @@ def test_vace_mode_falls_back_to_injected_ltx_backend(tmp_path: Path) -> None:
     assert "self-hosted" in worker.fallback_reason
 
 
-def test_vace_worker_passes_role_tagged_references_to_backend(
+def test_vace_worker_passes_indexed_references_to_backend(
     tmp_path: Path,
 ) -> None:
     start_frame = tmp_path / "start_frame.png"
@@ -164,8 +164,7 @@ def test_vace_worker_passes_role_tagged_references_to_backend(
         reference_assets=(
             ReferenceAsset(
                 index=1,
-                tag="@character",
-                role=ReferenceRole.character,
+                tag="@image1",
                 path=character,
             ),
         ),

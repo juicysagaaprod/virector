@@ -5,10 +5,10 @@ from virector.workers.base import RenderJob, RenderResult, VideoWorker
 
 
 class VaceBackend(Protocol):
-    """Self-hosted VACE inference implementation injected into the worker."""
+    """Self-hosted indexed multi-reference backend injected into the worker."""
 
     def render(self, job: RenderJob) -> str | Path:
-        """Render a role-tagged multi-reference job and return its video path."""
+        """Render an @imageN-tagged multi-reference job and return its video path."""
 
 
 class VaceWorkerUnavailableError(RuntimeError):
@@ -48,7 +48,7 @@ class VaceWorker(VideoWorker):
                 job_id=job.job_id,
                 status="failed",
                 start_frame=job.start_frame,
-                message="VACE render failed: no role-tagged references were supplied.",
+                message="VACE render failed: no indexed references were supplied.",
             )
 
         try:

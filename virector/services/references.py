@@ -1,85 +1,38 @@
 import re
 
-from virector.models.shot_spec import ReferenceDirective, ReferenceRole
+from virector.models.shot_spec import ReferenceDirective
 
 
-ROLE_ALIASES: dict[str, ReferenceRole] = {
-    "start": ReferenceRole.start_frame,
-    "start_frame": ReferenceRole.start_frame,
-    "opening": ReferenceRole.start_frame,
-    "character": ReferenceRole.character,
-    "identity": ReferenceRole.character,
-    "person": ReferenceRole.character,
-    "world": ReferenceRole.world,
-    "background": ReferenceRole.world,
-    "environment": ReferenceRole.world,
-    "scene": ReferenceRole.world,
-    "prop": ReferenceRole.prop,
-    "object": ReferenceRole.prop,
-    "wardrobe": ReferenceRole.wardrobe,
-    "clothing": ReferenceRole.wardrobe,
-    "costume": ReferenceRole.wardrobe,
-    "style": ReferenceRole.style,
-    "storyboard": ReferenceRole.storyboard,
-    "pose": ReferenceRole.pose,
-    "motion": ReferenceRole.pose,
-    "camera": ReferenceRole.camera,
-    "other": ReferenceRole.other,
-    "reference": ReferenceRole.other,
-}
-
-
-def _slug(value: str) -> str:
-    value = value.strip().lower().removeprefix("@")
-    value = re.sub(r"[^a-z0-9_-]+", "_", value).strip("_-")
-    return value or "reference"
+IMAGE_TAG_PATTERN = re.compile(r"(?<![a-z0-9_])@image(\d+)\b", re.IGNORECASE)
 
 
 def build_reference_directives(
     reference_count: int,
-    role_text: str = "",
 ) -> list[ReferenceDirective]:
-    """Build ordered, uniquely tagged directives from comma/newline role text."""
+    """Assign deterministic @image1...@image9 tags in upload order."""
 
     if reference_count < 1:
         raise ValueError("Upload at least one reference image.")
     if reference_count > 9:
         raise ValueError("Virector currently accepts up to nine reference images.")
 
-    entries = [
-        item.strip()
-        for item in re.split(r"[,\n]+", role_text or "")
-        if item.strip()
+    return [
+        ReferenceDirective(index=index, tag=f"@image{index}")
+        for index in range(1, reference_count + 1)
     ]
-    if len(entries) > reference_count:
-        raise ValueError(
-            "There are more reference roles than uploaded reference images."
-        )
 
-    directives: list[ReferenceDirective] = []
-    used_tags: dict[str, int] = {}
-    for offset in range(reference_count):
-        entry = entries[offset] if offset < len(entries) else ""
-        role_name, separator, description = entry.partition(":")
-        if entry:
-            slug = _slug(role_name)
-            role = ROLE_ALIASES.get(slug, ReferenceRole.other)
-        elif offset == 0:
-            slug = "start_frame"
-            role = ReferenceRole.start_frame
-        else:
-            slug = "reference"
-            role = ReferenceRole.other
 
-        occurrence = used_tags.get(slug, 0) + 1
-        used_tags[slug] = occurrence
-        tag = f"@{slug}" if occurrence == 1 else f"@{slug}_{occurrence}"
-        directives.append(
-            ReferenceDirective(
-                index=offset + 1,
-                tag=tag,
-                role=role,
-                description=description.strip() if separator else "",
-            )
-        )
-    return directives
+def validate_prompt_reference_tags(prompt: str, reference_count: int) -> None:
+    """Ensure the direction prompt uses each upload and no unknown image tag."""
+
+    expected = set(range(1, reference_count + 1))
+    mentioned = {int(value) for value in IMAGE_TAG_PATTERN.findall(prompt)}
+    unknown = sorted(mentioned - expected)
+    if unknown:
+        tags = ", ".join(f"@image{index}" for index in unknown)
+        raise ValueError(f"Direction prompt references image tags not uploaded: {tags}.")
+
+    missing = sorted(expected - mentioned)
+    if missing:
+        tags = ", ".join(f"@image{index}" for index in missing)
+        raise ValueError(f"Mention every uploaded image in the direction prompt: {tags}.")

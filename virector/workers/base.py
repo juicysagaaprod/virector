@@ -2,16 +2,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
-from virector.models.shot_spec import ReferenceRole, ShotSpec
+from virector.models.shot_spec import ShotSpec
 
 
 @dataclass(frozen=True)
 class ReferenceAsset:
     index: int
     tag: str
-    role: ReferenceRole
     path: Path
-    description: str = ""
     strength: float = 0.9
 
 

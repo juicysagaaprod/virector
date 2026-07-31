@@ -30,7 +30,7 @@ installs the lightweight dependencies, starts FastAPI automatically and forwards
 port 8000. You can also open the forwarded port and add `/studio/` to its URL.
 
 The Codespaces preview intentionally uses `MockWorker`: it exercises the hosted
-Studio, uploads, role tagging, `ShotSpec` validation and job manifests without
+Studio, uploads, `@imageN` tagging, `ShotSpec` validation and job manifests without
 downloading the LTX model. GitHub Codespaces does not generally provide a GPU,
 so LTX/VACE rendering remains on the local RTX machine or a future cloud GPU
 worker.
@@ -53,7 +53,7 @@ Persistent runtime data is kept outside the repository:
 ```text
 E:\Virector\models\     Model weights
 E:\Virector\cache\      Hugging Face, PyTorch and shared download caches
-E:\Virector\outputs\    Job manifests, start frames and generated videos
+E:\Virector\outputs\    Job manifests, internal inputs and generated videos
 E:\Virector\uploads\    Persistent uploaded assets
 ```
 
@@ -138,30 +138,27 @@ loading and final video decoding. Longer clips chain additional segments. The
 720p and 1080p choices upscale after native generation to keep local VRAM use
 within the 8GB target.
 
-The local LTX pipeline accepts one start frame. Studio therefore uses the first
-omni reference as the opening frame and copies the entire ordered reference set
-into the job's `references` directory. The worker contract exposes those files
-for a future VACE/Omni backend that can condition on all references directly.
-
-Each uploaded image can also be assigned a role in upload order. Enter roles as
-a comma- or newline-separated list, with an optional description after a colon:
+Studio automatically assigns each uploaded reference a name based on upload
+order. Describe what every image represents and how it behaves directly in the
+single direction prompt:
 
 ```text
-start frame: opening composition
-character: lead face and clothing
-world: neon city location
-prop: red umbrella
+@image1 is the lead character and @image2 is the world design. Show @image1
+walking naturally through @image2 while preserving the face and clothing.
 ```
 
-Virector converts these to unique machine-readable tags such as `@start_frame`,
-`@character`, `@world` and `@prop`. The ordered tags, descriptions and strengths
-are stored in both `ShotSpec.references` and the job manifest, ready for a
-multi-reference backend.
+The tags `@image1` through `@image9` are stored in both `ShotSpec.references` and
+the job manifest. Virector validates that every uploaded image is mentioned and
+that the prompt does not refer to an image that was not uploaded.
+
+The current local LTX adapter technically requires a single conditioning image,
+so it prepares one internally from `@image1`; this internal artifact is no longer
+shown in Studio. All uploaded references remain available to the VACE/Omni worker.
 
 ## VACE worker scaffold
 
 `VaceWorker` is the self-hosted multi-reference worker boundary. It receives the
-complete role-tagged reference set rather than silently using only one image.
+complete indexed reference set and the prompt containing `@imageN` instructions.
 The heavyweight VACE inference runtime is not installed in this milestone. If
 `VIRECTOR_WORKER_MODE=vace` is selected now, Virector reports that fact and uses
 the configured LTX preview backend; if LTX is unavailable it safely uses the
@@ -193,15 +190,14 @@ E:\Virector\outputs\ltx-smoke\preview.mp4
 ## First test
 
 1. Upload one or more images in **Omni reference images**.
-2. Put the intended opening frame first; add character, wardrobe, prop and
-   world-design images after it.
-3. Enter matching roles in **Reference roles (upload order)**.
-4. Describe the entire shot in the single **Direction prompt**.
-5. Select the aspect ratio, resolution and a length from 1–15 seconds.
-6. Select **Generate video**.
+2. Treat them as `@image1`, `@image2`, and so on in upload order.
+3. Describe what each image represents and the complete action in the single
+   **Direction prompt**.
+4. Select the aspect ratio, resolution and a length from 1–15 seconds.
+5. Select **Generate video**.
 
-The references, prepared start frame, `shot_spec.json` and generated MP4 are
-written to:
+The references, `shot_spec.json`, internal conditioning artifacts and generated
+MP4 are written to:
 
 ```text
 E:\Virector\outputs\<job-id>\
@@ -219,12 +215,12 @@ virector/
   models/shot_spec.py     Stable director-control contract
   services/compositor.py  Character/world start-frame compositor
   services/jobs.py        Job orchestration and manifests
-  services/references.py  Role parsing and unique asset tags
+  services/references.py  Ordered @imageN tags and prompt validation
   workers/base.py         Model-independent worker contract
   workers/mock.py         Milestone 1A start-frame worker
   workers/ltx.py          Backend-neutral LTX adapter
   workers/ltx_diffusers.py Low-memory Diffusers LTX backend
-  workers/vace.py         Role-tagged multi-reference worker boundary
+  workers/vace.py         Indexed multi-reference worker boundary
   workers/factory.py      Configured worker selection and fallback
   ltx_smoke.py            Direct four-second LTX smoke-render command
   ui/studio.py            Gradio director interface

@@ -10,7 +10,10 @@ from virector.models.shot_spec import (
     ShotSpec,
 )
 from virector.services.jobs import JobService
-from virector.services.references import build_reference_directives
+from virector.services.references import (
+    build_reference_directives,
+    validate_prompt_reference_tags,
+)
 
 
 VIDEO_MODEL = "ltx-video-2b-distilled"
@@ -19,7 +22,6 @@ VIDEO_MODEL = "ltx-video-2b-distilled"
 def create_studio(job_service: JobService) -> gr.Blocks:
     def render(
         reference_images: list[str] | None,
-        reference_roles: str,
         title: str,
         direction_prompt: str,
         video_model: str,
@@ -27,20 +29,18 @@ def create_studio(job_service: JobService) -> gr.Blocks:
         output_resolution: str,
         duration_seconds: float,
         seed: int,
-    ) -> tuple[str | None, str | None, str, str]:
+    ) -> tuple[str | None, str, str]:
         references = [Path(path) for path in (reference_images or [])]
         if not references:
-            return None, None, "Upload at least one omni reference image.", "{}"
+            return None, "Upload at least one omni reference image.", "{}"
         if not direction_prompt or len(direction_prompt.strip()) < 3:
-            return None, None, "Describe the video in the direction prompt.", "{}"
+            return None, "Describe the video in the direction prompt.", "{}"
 
         try:
-            reference_directives = build_reference_directives(
-                len(references),
-                reference_roles,
-            )
+            reference_directives = build_reference_directives(len(references))
+            validate_prompt_reference_tags(direction_prompt, len(references))
         except ValueError as exc:
-            return None, None, str(exc), "{}"
+            return None, str(exc), "{}"
 
         ratio = AspectRatio(aspect_ratio)
         resolution = OutputResolution(output_resolution)
@@ -64,17 +64,12 @@ def create_studio(job_service: JobService) -> gr.Blocks:
             spec=spec,
             reference_directives=reference_directives,
         )
-        tagged_references = ", ".join(
-            f"{item.tag} ({item.role.value})" for item in reference_directives
-        )
+        tagged_references = ", ".join(item.tag for item in reference_directives)
         reference_note = (
-            f"{len(references)} tagged reference image(s) saved: "
+            f"{len(references)} omni reference image(s) saved as "
             f"{tagged_references}. "
-            "The first image defines the current LTX start frame; the complete "
-            "role-tagged set is retained for the VACE backend. "
         )
         return (
-            str(result.start_frame),
             str(result.video) if result.video else None,
             (
                 f"{result.message} {reference_note}"
@@ -87,13 +82,14 @@ def create_studio(job_service: JobService) -> gr.Blocks:
     with gr.Blocks(title="Virector Studio") as studio:
         gr.Markdown(
             "# Virector Studio\n"
-            "Upload an ordered set of character, wardrobe, prop and world images, "
-            "then describe the complete shot in one direction prompt."
+            "Upload character and world-design images, then describe how they "
+            "work together in one direction prompt."
         )
         gr.Markdown(
-            "**Omni-reference workflow:** the first image is the opening frame for "
-            "the local LTX preview. Add one role per uploaded image so every asset "
-            "has a machine-readable tag for the VACE/Omni worker."
+            "**Omni-reference workflow:** uploads are automatically named "
+            "`@image1`, `@image2`, and so on. Mention those names directly in the "
+            "direction prompt—for example, “@image1 walks through the world in "
+            "@image2.”"
         )
 
         with gr.Row():
@@ -106,38 +102,20 @@ def create_studio(job_service: JobService) -> gr.Blocks:
                     allow_reordering=True,
                     height=240,
                 )
-                reference_roles = gr.Textbox(
-                    label="Reference roles (upload order)",
-                    placeholder=(
-                        "start frame: opening composition, character: lead identity, "
-                        "world: city design, prop: red umbrella"
-                    ),
-                    info=(
-                        "Separate roles with commas or new lines. Use one per image; "
-                        "descriptions after ':' are optional."
-                    ),
-                    lines=3,
+                gr.Markdown(
+                    "Upload order assigns `@image1`, `@image2`, up to `@image9`."
                 )
                 direction_prompt = gr.Textbox(
                     label="Direction prompt",
                     placeholder=(
-                        "Describe the entire video: subjects and identity, action, "
-                        "expression, environment, props, camera shot and movement, "
-                        "lens, lighting, timing, mood and ending frame."
-                    ),
-                    value=(
-                        "The subject moves naturally through the environment while "
-                        "preserving identity and wardrobe. Use cinematic realistic "
-                        "motion, stable anatomy, soft natural lighting and a slow "
-                        "controlled camera move."
+                        "@image1 is the character and @image2 is the world design. "
+                        "Show @image1 walking naturally through @image2 while "
+                        "preserving the character's face and clothing. Describe "
+                        "action, camera movement, lighting, mood and timing."
                     ),
                     lines=10,
                 )
             with gr.Column(scale=1):
-                output_image = gr.Image(
-                    label="Prepared start frame",
-                    interactive=False,
-                )
                 output_video = gr.Video(
                     label="Generated video",
                     interactive=False,
@@ -187,7 +165,6 @@ def create_studio(job_service: JobService) -> gr.Blocks:
             fn=render,
             inputs=[
                 reference_images,
-                reference_roles,
                 title,
                 direction_prompt,
                 video_model,
@@ -196,7 +173,7 @@ def create_studio(job_service: JobService) -> gr.Blocks:
                 duration_seconds,
                 seed,
             ],
-            outputs=[output_image, output_video, status, shot_json],
+            outputs=[output_video, status, shot_json],
         )
 
     return studio

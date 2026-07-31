@@ -16,24 +16,9 @@ class OutputResolution(str, Enum):
     p1080 = "1080p"
 
 
-class ReferenceRole(str, Enum):
-    start_frame = "start_frame"
-    character = "character"
-    world = "world"
-    prop = "prop"
-    wardrobe = "wardrobe"
-    style = "style"
-    storyboard = "storyboard"
-    pose = "pose"
-    camera = "camera"
-    other = "other"
-
-
 class ReferenceDirective(BaseModel):
-    index: int = Field(ge=1, le=15)
-    tag: str = Field(pattern=r"^@[a-z][a-z0-9_-]{0,39}$")
-    role: ReferenceRole
-    description: str = Field(default="", max_length=240)
+    index: int = Field(ge=1, le=9)
+    tag: str = Field(pattern=r"^@image[1-9]$")
     strength: float = Field(default=0.9, ge=0.0, le=1.0)
 
 
@@ -77,7 +62,7 @@ class ShotSpec(BaseModel):
     )
     video_model: str = Field(default="ltx-video-2b-distilled", max_length=120)
     reference_mode: str = Field(default="omni", pattern="^(omni|layered)$")
-    references: list[ReferenceDirective] = Field(default_factory=list, max_length=15)
+    references: list[ReferenceDirective] = Field(default_factory=list, max_length=9)
     aspect_ratio: AspectRatio = AspectRatio.portrait
     output_resolution: OutputResolution = OutputResolution.preview
     width: int = Field(default=480, ge=256, le=4096)
@@ -103,8 +88,9 @@ class ShotSpec(BaseModel):
         if indexes and sorted(indexes) != list(range(1, len(indexes) + 1)):
             raise ValueError("Reference indexes must be contiguous and start at one")
         tags = [reference.tag for reference in self.references]
-        if len(tags) != len(set(tags)):
-            raise ValueError("Reference tags must be unique")
+        expected_tags = [f"@image{index}" for index in range(1, len(tags) + 1)]
+        if tags != expected_tags:
+            raise ValueError("Reference tags must match upload order: @image1, @image2")
         return self
 
 
