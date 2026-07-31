@@ -1,0 +1,1 @@
+-- Production-like staging intentionally starts without users or render data.

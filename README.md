@@ -47,6 +47,36 @@ The Supabase connection settings are reserved in the staging template for the
 next milestone: persistent users, projects and render-job state. Until that job
 repository is connected, `MockWorker` should remain the staging default.
 
+### Supabase database schema
+
+The version-controlled schema under `supabase/` defines private project and
+render metadata. It includes:
+
+- projects owned by Supabase Auth users;
+- render jobs with status, progress, attempts and `ShotSpec` JSON;
+- R2 object metadata for references, manifests and generated videos;
+- append-only progress and error events; and
+- Row-Level Security policies that restrict authenticated reads to the owner.
+
+Browser clients cannot mutate render jobs directly. FastAPI will perform those
+writes through its private database connection, while authenticated clients can
+read only their own projects and render history.
+
+Validate the migration without touching staging:
+
+```powershell
+npx --yes supabase@latest db start
+npx --yes supabase@latest db lint --local --level warning
+npx --yes supabase@latest stop --no-backup
+```
+
+Deploy pending migrations only after reviewing a dry run:
+
+```powershell
+npx --yes supabase@latest db push --dry-run
+npx --yes supabase@latest db push
+```
+
 ## GitHub Codespaces preview
 
 Select **Open in GitHub Codespaces** above, create the Codespace, and wait for

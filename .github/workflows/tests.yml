@@ -8,6 +8,29 @@ permissions:
   contents: read
 
 jobs:
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.111.0
+
+      - name: Apply migrations to local Postgres
+        run: supabase db start
+
+      - name: Lint database schema
+        run: supabase db lint --local --level warning
+
+      - name: Stop local Postgres
+        if: always()
+        run: supabase stop --no-backup
+
   pytest:
     runs-on: ubuntu-latest
     timeout-minutes: 10
