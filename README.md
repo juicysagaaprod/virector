@@ -1,5 +1,7 @@
 # Virector Starter
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/juicysagaaprod/virector?quickstart=1)
+
 Virector Milestone 1A is a cloud-ready Python scaffold for composing an
 AI-generated character image over a world/background image and saving a
 structured director specification.
@@ -19,6 +21,24 @@ The mock worker remains the default so the compositor can run without a GPU.
 The optional LTX runtime uses the official LTX-Video 2B distilled checkpoint
 through Diffusers. If the runtime or CUDA is unavailable, Virector reports the
 reason through `/api/health` and safely falls back to the mock worker.
+
+## GitHub-hosted Studio preview
+
+Select **Open in GitHub Codespaces** above, create the Codespace, and wait for
+the forwarded **Virector Studio** tab to open. The repository configuration
+installs the lightweight dependencies, starts FastAPI automatically and forwards
+port 8000. You can also open the forwarded port and add `/studio/` to its URL.
+
+The Codespaces preview intentionally uses `MockWorker`: it exercises the hosted
+Studio, uploads, role tagging, `ShotSpec` validation and job manifests without
+downloading the LTX model. GitHub Codespaces does not generally provide a GPU,
+so LTX/VACE rendering remains on the local RTX machine or a future cloud GPU
+worker.
+
+Forwarded ports are private by default. To share the preview temporarily, open
+the Codespace **Ports** panel, right-click port 8000, select **Port Visibility →
+Public**, and copy the forwarded `app.github.dev` URL. The Codespace must remain
+running for that URL to work.
 
 ## Recommended Windows folder
 

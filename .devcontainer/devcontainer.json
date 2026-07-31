@@ -1,0 +1,30 @@
+{
+  "name": "Virector Studio Preview",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.10-bookworm",
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "8gb",
+    "storage": "16gb"
+  },
+  "containerEnv": {
+    "VIRECTOR_WORKER_MODE": "mock",
+    "VIRECTOR_DATA_DIR": "${containerWorkspaceFolder}/data"
+  },
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "Virector Studio",
+      "onAutoForward": "openBrowser",
+      "protocol": "http"
+    }
+  },
+  "postCreateCommand": "python -m pip install --upgrade pip && python -m pip install -e '.[dev]'",
+  "postStartCommand": "bash .devcontainer/start-virector.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python"
+      ]
+    }
+  }
+}
