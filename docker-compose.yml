@@ -7,7 +7,24 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      VIRECTOR_MODELS_DIR: /data/models
+      VIRECTOR_CACHE_DIR: /data/cache
+      VIRECTOR_OUTPUTS_DIR: /data/outputs
+      HF_HOME: /data/cache/huggingface
+      TORCH_HOME: /data/cache/torch
+      XDG_CACHE_HOME: /data/cache
     volumes:
-      - "E:/Virector:/data"
+      - type: bind
+        source: "${VIRECTOR_HOST_MODELS_DIR:-E:/Virector/models}"
+        target: /data/models
+      - type: bind
+        source: "${VIRECTOR_HOST_CACHE_DIR:-E:/Virector/cache}"
+        target: /data/cache
+      - type: bind
+        source: "${VIRECTOR_HOST_OUTPUTS_DIR:-E:/Virector/outputs}"
+        target: /data/outputs
+      - type: bind
+        source: "${VIRECTOR_HOST_UPLOADS_DIR:-E:/Virector/uploads}"
+        target: /data/uploads
     restart: unless-stopped
-

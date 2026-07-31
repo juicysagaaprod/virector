@@ -28,7 +28,18 @@ Extract this project to:
 E:\Virector\virector-starter
 ```
 
-Keep models, cache, projects and outputs under `E:\Virector`.
+Persistent runtime data is kept outside the repository:
+
+```text
+E:\Virector\models\     Model weights
+E:\Virector\cache\      Hugging Face, PyTorch and shared download caches
+E:\Virector\outputs\    Job manifests, start frames and generated videos
+E:\Virector\uploads\    Persistent uploaded assets
+```
+
+Docker Compose mounts each directory independently. Override the host locations
+with `VIRECTOR_HOST_MODELS_DIR`, `VIRECTOR_HOST_CACHE_DIR`,
+`VIRECTOR_HOST_OUTPUTS_DIR` and `VIRECTOR_HOST_UPLOADS_DIR` in `.env`.
 
 ## Option A: Run in WSL2
 
@@ -84,8 +95,8 @@ The generated frame and its `shot_spec.json` are written to:
 E:\Virector\outputs\<job-id>\
 ```
 
-when using Docker, or to the configured `VIRECTOR_DATA_DIR` when running
-directly.
+when using Docker, or to `VIRECTOR_OUTPUTS_DIR` (falling back to
+`VIRECTOR_DATA_DIR/outputs`) when running directly.
 
 ## Project structure
 
