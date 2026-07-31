@@ -5,6 +5,8 @@ from virector.models.shot_spec import (
     OUTPUT_RESOLUTION_PRESETS,
     AspectRatio,
     OutputResolution,
+    ReferenceDirective,
+    ReferenceRole,
     ShotSpec,
 )
 
@@ -43,3 +45,59 @@ def test_output_resolution_presets_cover_every_aspect_ratio() -> None:
     assert OUTPUT_RESOLUTION_PRESETS[OutputResolution.p1080][
         AspectRatio.landscape
     ] == (1920, 1080)
+
+
+def test_shot_accepts_contiguous_unique_reference_directives() -> None:
+    shot = ShotSpec(
+        prompt="The lead crosses the designed world.",
+        references=[
+            ReferenceDirective(
+                index=1,
+                tag="@character",
+                role=ReferenceRole.character,
+            ),
+            ReferenceDirective(
+                index=2,
+                tag="@world",
+                role=ReferenceRole.world,
+            ),
+        ],
+    )
+
+    assert [reference.tag for reference in shot.references] == [
+        "@character",
+        "@world",
+    ]
+
+
+def test_shot_rejects_duplicate_reference_tags() -> None:
+    with pytest.raises(ValidationError, match="tags must be unique"):
+        ShotSpec(
+            prompt="The lead crosses the designed world.",
+            references=[
+                ReferenceDirective(
+                    index=1,
+                    tag="@character",
+                    role=ReferenceRole.character,
+                ),
+                ReferenceDirective(
+                    index=2,
+                    tag="@character",
+                    role=ReferenceRole.character,
+                ),
+            ],
+        )
+
+
+def test_shot_rejects_noncontiguous_reference_indexes() -> None:
+    with pytest.raises(ValidationError, match="indexes must be contiguous"):
+        ShotSpec(
+            prompt="The lead crosses the designed world.",
+            references=[
+                ReferenceDirective(
+                    index=2,
+                    tag="@world",
+                    role=ReferenceRole.world,
+                )
+            ],
+        )

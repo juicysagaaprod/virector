@@ -10,6 +10,7 @@ from virector.models.shot_spec import (
     ShotSpec,
 )
 from virector.services.jobs import JobService
+from virector.services.references import build_reference_directives
 
 
 VIDEO_MODEL = "ltx-video-2b-distilled"
@@ -18,6 +19,7 @@ VIDEO_MODEL = "ltx-video-2b-distilled"
 def create_studio(job_service: JobService) -> gr.Blocks:
     def render(
         reference_images: list[str] | None,
+        reference_roles: str,
         title: str,
         direction_prompt: str,
         video_model: str,
@@ -31,6 +33,14 @@ def create_studio(job_service: JobService) -> gr.Blocks:
             return None, None, "Upload at least one omni reference image.", "{}"
         if not direction_prompt or len(direction_prompt.strip()) < 3:
             return None, None, "Describe the video in the direction prompt.", "{}"
+
+        try:
+            reference_directives = build_reference_directives(
+                len(references),
+                reference_roles,
+            )
+        except ValueError as exc:
+            return None, None, str(exc), "{}"
 
         ratio = AspectRatio(aspect_ratio)
         resolution = OutputResolution(output_resolution)
@@ -47,15 +57,21 @@ def create_studio(job_service: JobService) -> gr.Blocks:
             height=height,
             duration_seconds=float(duration_seconds),
             seed=int(seed),
+            references=reference_directives,
         )
         result = job_service.create_from_references(
             reference_paths=references,
             spec=spec,
+            reference_directives=reference_directives,
+        )
+        tagged_references = ", ".join(
+            f"{item.tag} ({item.role.value})" for item in reference_directives
         )
         reference_note = (
-            f"{len(references)} omni reference image(s) saved. "
+            f"{len(references)} tagged reference image(s) saved: "
+            f"{tagged_references}. "
             "The first image defines the current LTX start frame; the complete "
-            "ordered set is retained for a true multi-reference backend. "
+            "role-tagged set is retained for the VACE backend. "
         )
         return (
             str(result.start_frame),
@@ -76,8 +92,8 @@ def create_studio(job_service: JobService) -> gr.Blocks:
         )
         gr.Markdown(
             "**Omni-reference workflow:** the first image is the opening frame for "
-            "the local LTX preview. Every uploaded image is copied into the job so "
-            "a future VACE/Omni backend can condition on the complete set."
+            "the local LTX preview. Add one role per uploaded image so every asset "
+            "has a machine-readable tag for the VACE/Omni worker."
         )
 
         with gr.Row():
@@ -89,6 +105,18 @@ def create_studio(job_service: JobService) -> gr.Blocks:
                     type="filepath",
                     allow_reordering=True,
                     height=240,
+                )
+                reference_roles = gr.Textbox(
+                    label="Reference roles (upload order)",
+                    placeholder=(
+                        "start frame: opening composition, character: lead identity, "
+                        "world: city design, prop: red umbrella"
+                    ),
+                    info=(
+                        "Separate roles with commas or new lines. Use one per image; "
+                        "descriptions after ':' are optional."
+                    ),
+                    lines=3,
                 )
                 direction_prompt = gr.Textbox(
                     label="Direction prompt",
@@ -159,6 +187,7 @@ def create_studio(job_service: JobService) -> gr.Blocks:
             fn=render,
             inputs=[
                 reference_images,
+                reference_roles,
                 title,
                 direction_prompt,
                 video_model,

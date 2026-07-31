@@ -4,7 +4,7 @@ from pathlib import Path
 from PIL import Image
 
 from virector.config import Settings
-from virector.models.shot_spec import ShotSpec
+from virector.models.shot_spec import ReferenceDirective, ReferenceRole, ShotSpec
 from virector.services.jobs import JobService
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
 
@@ -36,6 +36,20 @@ def test_job_service_retains_ordered_omni_references(tmp_path: Path) -> None:
     result = service.create_from_references(
         [first, second],
         ShotSpec(prompt="The character walks through the designed world."),
+        reference_directives=[
+            ReferenceDirective(
+                index=1,
+                tag="@character",
+                role=ReferenceRole.character,
+                description="lead identity",
+            ),
+            ReferenceDirective(
+                index=2,
+                tag="@world",
+                role=ReferenceRole.world,
+                description="city location",
+            ),
+        ],
     )
 
     assert result.start_frame.is_file()
@@ -44,7 +58,14 @@ def test_job_service_retains_ordered_omni_references(tmp_path: Path) -> None:
         "reference-01.png",
         "reference-02.jpg",
     ]
+    assert [asset.tag for asset in worker.job.reference_assets] == [
+        "@character",
+        "@world",
+    ]
+    assert worker.job.reference_assets[0].description == "lead identity"
     manifest = json.loads(
         (worker.job.output_dir / "shot_spec.json").read_text(encoding="utf-8")
     )
     assert len(manifest["assets"]["reference_images"]) == 2
+    assert manifest["assets"]["references"][0]["role"] == "character"
+    assert manifest["assets"]["references"][1]["tag"] == "@world"

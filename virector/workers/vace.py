@@ -4,27 +4,25 @@ from typing import Protocol
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
 
 
-class LtxBackend(Protocol):
-    """Inference implementation injected into the model-independent worker."""
+class VaceBackend(Protocol):
+    """Self-hosted VACE inference implementation injected into the worker."""
 
     def render(self, job: RenderJob) -> str | Path:
-        """Render a job and return the generated video path."""
+        """Render a role-tagged multi-reference job and return its video path."""
 
 
-class LtxWorkerUnavailableError(RuntimeError):
-    """Raised when LTX mode is requested without a usable backend."""
+class VaceWorkerUnavailableError(RuntimeError):
+    """Raised when VACE mode is requested without its self-hosted runtime."""
 
 
-class LtxWorker(VideoWorker):
-    """LTX adapter scaffold; model loading stays behind ``LtxBackend``."""
-
-    mode = "ltx"
+class VaceWorker(VideoWorker):
+    mode = "vace"
 
     def __init__(
         self,
-        backend: LtxBackend | None = None,
+        backend: VaceBackend | None = None,
         *,
-        requested_mode: str = "ltx",
+        requested_mode: str = "vace",
         fallback_reason: str | None = None,
     ) -> None:
         self._backend = backend
@@ -37,14 +35,21 @@ class LtxWorker(VideoWorker):
 
     def ensure_ready(self) -> None:
         if not self.ready:
-            raise LtxWorkerUnavailableError(
-                "LTX mode was requested, but its inference backend is not "
-                "configured yet."
+            raise VaceWorkerUnavailableError(
+                "VACE mode was requested, but its self-hosted inference backend "
+                "is not configured yet."
             )
 
     def render(self, job: RenderJob) -> RenderResult:
         self.ensure_ready()
         assert self._backend is not None
+        if not job.reference_assets:
+            return RenderResult(
+                job_id=job.job_id,
+                status="failed",
+                start_frame=job.start_frame,
+                message="VACE render failed: no role-tagged references were supplied.",
+            )
 
         try:
             video = Path(self._backend.render(job))
@@ -53,7 +58,7 @@ class LtxWorker(VideoWorker):
                 job_id=job.job_id,
                 status="failed",
                 start_frame=job.start_frame,
-                message=f"LTX preview failed: {exc}",
+                message=f"VACE render failed: {exc}",
             )
         if not video.is_file():
             return RenderResult(
@@ -61,18 +66,14 @@ class LtxWorker(VideoWorker):
                 status="failed",
                 start_frame=job.start_frame,
                 message=(
-                    "LTX preview failed: the backend did not create its "
+                    "VACE render failed: the backend did not create its "
                     f"declared output: {video}"
                 ),
             )
-
-        message = "LTX preview rendered successfully."
-        if self.fallback_reason:
-            message = f"{self.fallback_reason} {message}"
         return RenderResult(
             job_id=job.job_id,
             status="completed",
             start_frame=job.start_frame,
             video=video,
-            message=message,
+            message="VACE multi-reference preview rendered successfully.",
         )

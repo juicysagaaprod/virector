@@ -3,8 +3,8 @@ from pathlib import Path
 from pytest import MonkeyPatch
 
 from virector.config import Settings
-from virector.models.shot_spec import ShotSpec
-from virector.workers.base import RenderJob
+from virector.models.shot_spec import ReferenceRole, ShotSpec
+from virector.workers.base import ReferenceAsset, RenderJob
 from virector.workers.factory import create_worker
 from virector.workers.ltx import LtxWorker, LtxWorkerUnavailableError
 from virector.workers.ltx_diffusers import (
@@ -13,6 +13,7 @@ from virector.workers.ltx_diffusers import (
     ltx_segment_frame_counts,
 )
 from virector.workers.mock import MockWorker
+from virector.workers.vace import VaceWorker
 
 
 class FakeLtxBackend:
@@ -25,6 +26,13 @@ class FakeLtxBackend:
 class FailingLtxBackend:
     def render(self, job: RenderJob) -> Path:
         raise RuntimeError("not enough GPU memory")
+
+
+class FakeVaceBackend:
+    def render(self, job: RenderJob) -> Path:
+        video = job.output_dir / "vace-preview.mp4"
+        video.write_bytes(b"fake multi-reference video")
+        return video
 
 
 def test_factory_selects_mock_by_default(tmp_path: Path) -> None:
@@ -118,3 +126,53 @@ def test_ltx_prompt_uses_single_direction_box_verbatim() -> None:
     prompt = build_ltx_prompt(spec)
 
     assert prompt == "The lead crosses the room."
+
+
+def test_factory_selects_injected_vace_backend(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path, worker_mode="vace")
+
+    worker = create_worker(settings, vace_backend=FakeVaceBackend())
+
+    assert isinstance(worker, VaceWorker)
+    assert worker.requested_mode == "vace"
+
+
+def test_vace_mode_falls_back_to_injected_ltx_backend(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path, worker_mode="vace")
+
+    worker = create_worker(settings, ltx_backend=FakeLtxBackend())
+
+    assert isinstance(worker, LtxWorker)
+    assert worker.requested_mode == "vace"
+    assert worker.fallback_reason is not None
+    assert "self-hosted" in worker.fallback_reason
+
+
+def test_vace_worker_passes_role_tagged_references_to_backend(
+    tmp_path: Path,
+) -> None:
+    start_frame = tmp_path / "start_frame.png"
+    start_frame.write_bytes(b"fake image")
+    character = tmp_path / "character.png"
+    character.write_bytes(b"fake character")
+    job = RenderJob(
+        job_id="vace-job",
+        output_dir=tmp_path,
+        start_frame=start_frame,
+        spec=ShotSpec(prompt="The lead crosses the designed world."),
+        reference_images=(character,),
+        reference_assets=(
+            ReferenceAsset(
+                index=1,
+                tag="@character",
+                role=ReferenceRole.character,
+                path=character,
+            ),
+        ),
+    )
+    worker = VaceWorker(backend=FakeVaceBackend())
+
+    result = worker.render(job)
+
+    assert result.status == "completed"
+    assert result.video == tmp_path / "vace-preview.mp4"

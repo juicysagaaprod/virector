@@ -16,6 +16,27 @@ class OutputResolution(str, Enum):
     p1080 = "1080p"
 
 
+class ReferenceRole(str, Enum):
+    start_frame = "start_frame"
+    character = "character"
+    world = "world"
+    prop = "prop"
+    wardrobe = "wardrobe"
+    style = "style"
+    storyboard = "storyboard"
+    pose = "pose"
+    camera = "camera"
+    other = "other"
+
+
+class ReferenceDirective(BaseModel):
+    index: int = Field(ge=1, le=15)
+    tag: str = Field(pattern=r"^@[a-z][a-z0-9_-]{0,39}$")
+    role: ReferenceRole
+    description: str = Field(default="", max_length=240)
+    strength: float = Field(default=0.9, ge=0.0, le=1.0)
+
+
 class CameraDirection(BaseModel):
     shot_size: str = Field(default="medium", max_length=40)
     movement: str = Field(default="static", max_length=80)
@@ -56,6 +77,7 @@ class ShotSpec(BaseModel):
     )
     video_model: str = Field(default="ltx-video-2b-distilled", max_length=120)
     reference_mode: str = Field(default="omni", pattern="^(omni|layered)$")
+    references: list[ReferenceDirective] = Field(default_factory=list, max_length=15)
     aspect_ratio: AspectRatio = AspectRatio.portrait
     output_resolution: OutputResolution = OutputResolution.preview
     width: int = Field(default=480, ge=256, le=4096)
@@ -77,6 +99,12 @@ class ShotSpec(BaseModel):
             raise ValueError("1:1 output requires equal width and height")
         if self.aspect_ratio == AspectRatio.social and self.width >= self.height:
             raise ValueError("4:5 output requires height greater than width")
+        indexes = [reference.index for reference in self.references]
+        if indexes and sorted(indexes) != list(range(1, len(indexes) + 1)):
+            raise ValueError("Reference indexes must be contiguous and start at one")
+        tags = [reference.tag for reference in self.references]
+        if len(tags) != len(set(tags)):
+            raise ValueError("Reference tags must be unique")
         return self
 
 

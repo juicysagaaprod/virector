@@ -6,12 +6,18 @@ from pathlib import Path
 from uuid import uuid4
 
 from virector.config import Settings
-from virector.models.shot_spec import ShotSpec
+from virector.models.shot_spec import ReferenceDirective, ReferenceRole, ShotSpec
 from virector.services.compositor import (
     compose_start_frame,
     prepare_reference_start_frame,
 )
-from virector.workers.base import RenderJob, RenderResult, VideoWorker
+from virector.services.references import build_reference_directives
+from virector.workers.base import (
+    ReferenceAsset,
+    RenderJob,
+    RenderResult,
+    VideoWorker,
+)
 
 
 @dataclass(frozen=True)
@@ -74,6 +80,20 @@ class JobService:
                 start_frame=artifacts.start_frame,
                 spec=spec,
                 reference_images=(Path(character_path), Path(world_path)),
+                reference_assets=(
+                    ReferenceAsset(
+                        index=1,
+                        tag="@character",
+                        role=ReferenceRole.character,
+                        path=Path(character_path),
+                    ),
+                    ReferenceAsset(
+                        index=2,
+                        tag="@world",
+                        role=ReferenceRole.world,
+                        path=Path(world_path),
+                    ),
+                ),
             )
         )
 
@@ -81,11 +101,25 @@ class JobService:
         self,
         reference_paths: list[str | Path],
         spec: ShotSpec,
+        reference_directives: list[ReferenceDirective] | None = None,
     ) -> RenderResult:
-        """Create a job from one ordered, role-agnostic reference image set."""
+        """Create a job from one ordered, role-tagged reference image set."""
 
         if not reference_paths:
             raise ValueError("Upload at least one omni reference image.")
+        directives = reference_directives or spec.references
+        if not directives:
+            directives = build_reference_directives(len(reference_paths))
+        if len(directives) != len(reference_paths):
+            raise ValueError(
+                "Each uploaded reference image must have one reference directive."
+            )
+        spec = ShotSpec.model_validate(
+            {
+                **spec.model_dump(),
+                "references": directives,
+            }
+        )
 
         job_id = uuid4().hex
         job_dir = self.settings.outputs_dir / job_id
@@ -101,6 +135,18 @@ class JobService:
             destination = references_dir / f"reference-{index:02d}{suffix}"
             shutil.copy2(source, destination)
             saved_references.append(destination)
+
+        reference_assets = tuple(
+            ReferenceAsset(
+                index=directive.index,
+                tag=directive.tag,
+                role=directive.role,
+                path=path,
+                description=directive.description,
+                strength=directive.strength,
+            )
+            for directive, path in zip(directives, saved_references, strict=True)
+        )
 
         artifacts = JobArtifacts(
             job_id=job_id,
@@ -123,6 +169,17 @@ class JobService:
                 "reference_images": [
                     str(path.resolve()) for path in artifacts.references
                 ],
+                "references": [
+                    {
+                        "index": asset.index,
+                        "tag": asset.tag,
+                        "role": asset.role.value,
+                        "description": asset.description,
+                        "strength": asset.strength,
+                        "path": str(asset.path.resolve()),
+                    }
+                    for asset in reference_assets
+                ],
                 "primary_reference": str(artifacts.references[0].resolve()),
                 "start_frame": str(artifacts.start_frame.resolve()),
             },
@@ -139,5 +196,6 @@ class JobService:
                 start_frame=artifacts.start_frame,
                 spec=spec,
                 reference_images=artifacts.references,
+                reference_assets=reference_assets,
             )
         )

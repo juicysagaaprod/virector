@@ -2,7 +2,17 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
-from virector.models.shot_spec import ShotSpec
+from virector.models.shot_spec import ReferenceRole, ShotSpec
+
+
+@dataclass(frozen=True)
+class ReferenceAsset:
+    index: int
+    tag: str
+    role: ReferenceRole
+    path: Path
+    description: str = ""
+    strength: float = 0.9
 
 
 @dataclass(frozen=True)
@@ -12,6 +22,7 @@ class RenderJob:
     start_frame: Path
     spec: ShotSpec
     reference_images: tuple[Path, ...] = ()
+    reference_assets: tuple[ReferenceAsset, ...] = ()
 
 
 @dataclass(frozen=True)

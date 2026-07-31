@@ -25,13 +25,16 @@ class Settings(BaseSettings):
         validation_alias="VIRECTOR_OUTPUTS_DIR",
         repr=False,
     )
-    worker_mode: Literal["mock", "ltx"] = "mock"
+    worker_mode: Literal["mock", "ltx", "vace"] = "mock"
     ltx_model_repo: str = "Lightricks/LTX-Video"
     ltx_checkpoint_filename: str = "ltxv-2b-0.9.8-distilled.safetensors"
     ltx_inference_steps: int = Field(default=8, ge=1, le=50)
     ltx_max_frames: int = Field(default=97, ge=9, le=257)
     ltx_text_encoder_4bit: bool = True
     ltx_cpu_offload: bool = True
+    vace_model_name: str = "Wan2.1-VACE-1.3B"
+    vace_repo_dir: Path | None = None
+    vace_checkpoint_dir: Path | None = None
     host: str = "0.0.0.0"
     port: int = 8000
 
