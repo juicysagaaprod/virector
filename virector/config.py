@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     vace_model_name: str = "Wan2.1-VACE-1.3B"
     vace_repo_dir: Path | None = None
     vace_checkpoint_dir: Path | None = None
+    cors_origins: str = "http://localhost:3000"
     host: str = "0.0.0.0"
     port: int = 8000
 
@@ -59,6 +60,14 @@ class Settings(BaseSettings):
     @property
     def models_dir(self) -> Path:
         return self.models_dir_override or self.data_dir / "models"
+
+    @property
+    def allowed_cors_origins(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.cors_origins.split(",")
+            if origin.strip()
+        ]
 
     def ensure_directories(self) -> None:
         for path in (

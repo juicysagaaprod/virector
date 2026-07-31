@@ -47,3 +47,16 @@ def test_storage_overrides_are_created(
     assert models.is_dir()
     assert cache.is_dir()
     assert outputs.is_dir()
+
+
+def test_cors_origins_are_split_and_trimmed(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path,
+        cors_origins="http://localhost:3000, https://virector.example.com ",
+    )
+
+    assert settings.allowed_cors_origins == [
+        "http://localhost:3000",
+        "https://virector.example.com",
+    ]

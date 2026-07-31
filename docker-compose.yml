@@ -1,4 +1,16 @@
 services:
+  web:
+    build:
+      context: ./web
+      args:
+        VIRECTOR_API_INTERNAL_URL: http://virector:8000
+    container_name: virector-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - virector
+    restart: unless-stopped
+
   virector:
     build:
       context: .

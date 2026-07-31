@@ -1,15 +1,16 @@
-# Virector Starter
+# Virector
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/juicysagaaprod/virector?quickstart=1)
 
-Virector Milestone 1A is a cloud-ready Python scaffold for composing an
-AI-generated character image over a world/background image and saving a
-structured director specification.
+Virector is a full-stack, director-controlled AI video application. Its
+production web client sends ordered omni-reference images and one natural
+language direction prompt to a model-independent Python render service.
 
 The starter includes:
 
-- FastAPI control API
-- Gradio director panel
+- Next.js and TypeScript production web client
+- FastAPI render API
+- Gradio internal model-testing panel
 - Pydantic `ShotSpec`
 - Transparent-PNG character compositor
 - Job manifests and output folders
@@ -22,21 +23,22 @@ The optional LTX runtime uses the official LTX-Video 2B distilled checkpoint
 through Diffusers. If the runtime or CUDA is unavailable, Virector reports the
 reason through `/api/health` and safely falls back to the mock worker.
 
-## GitHub-hosted Studio preview
+## GitHub Codespaces preview
 
 Select **Open in GitHub Codespaces** above, create the Codespace, and wait for
-the forwarded **Virector Studio** tab to open. The repository configuration
-installs the lightweight dependencies, starts FastAPI automatically and forwards
-port 8000. You can also open the forwarded port and add `/studio/` to its URL.
+the forwarded **Virector Web** tab to open. The repository configuration installs
+the lightweight Python and Node dependencies, starts both services, and forwards
+the public web client on port 3000. FastAPI remains an internal service on port
+8000.
 
 The Codespaces preview intentionally uses `MockWorker`: it exercises the hosted
-Studio, uploads, `@imageN` tagging, `ShotSpec` validation and job manifests without
+web client, uploads, `@imageN` tagging, `ShotSpec` validation and job manifests without
 downloading the LTX model. GitHub Codespaces does not generally provide a GPU,
 so LTX/VACE rendering remains on the local RTX machine or a future cloud GPU
 worker.
 
 Forwarded ports are private by default. To share the preview temporarily, open
-the Codespace **Ports** panel, right-click port 8000, select **Port Visibility →
+the Codespace **Ports** panel, right-click port 3000, select **Port Visibility →
 Public**, and copy the forwarded `app.github.dev` URL. The Codespace must remain
 running for that URL to work.
 
@@ -98,7 +100,26 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Then open `http://localhost:8000/studio`.
+Then open `http://localhost:3000` for the production web client.
+
+The internal Gradio model-testing studio remains available at
+`http://localhost:8000/studio/`, and the FastAPI documentation is available at
+`http://localhost:8000/docs`.
+
+## Run the web client without Docker
+
+Keep the FastAPI service running on port 8000, then open a second PowerShell
+window:
+
+```powershell
+Set-Location E:\Virector\virector-starter\web
+Copy-Item .env.example .env.local
+npm ci
+npm run dev
+```
+
+Open `http://localhost:3000`. Next.js proxies `/api` to FastAPI, so the public
+browser only needs the web origin.
 
 ## Enable local LTX previews
 
@@ -224,7 +245,13 @@ virector/
   workers/factory.py      Configured worker selection and fallback
   ltx_smoke.py            Direct four-second LTX smoke-render command
   ui/studio.py            Gradio director interface
+web/
+  app/page.tsx            Production director interface
+  app/globals.css         Responsive visual system
+  next.config.ts          FastAPI reverse proxy
+  Dockerfile              Standalone production web image
 tests/
+  test_api.py
   test_compositor.py
   test_jobs.py
   test_references.py

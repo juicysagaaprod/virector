@@ -3,19 +3,25 @@ set -euo pipefail
 
 cd "${CODESPACE_VSCODE_FOLDER:-$(pwd)}"
 
-pid_file="/tmp/virector-uvicorn.pid"
-log_file="/tmp/virector-uvicorn.log"
+backend_pid_file="/tmp/virector-uvicorn.pid"
+backend_log_file="/tmp/virector-uvicorn.log"
+web_pid_file="/tmp/virector-web.pid"
+web_log_file="/tmp/virector-web.log"
 
-if [[ -f "$pid_file" ]] && kill -0 "$(<"$pid_file")" 2>/dev/null; then
-  echo "Virector is already running at http://localhost:8000/studio/"
-  exit 0
+if [[ ! -f "$backend_pid_file" ]] || ! kill -0 "$(<"$backend_pid_file")" 2>/dev/null; then
+  nohup python -m uvicorn virector.main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    >"$backend_log_file" 2>&1 &
+  echo $! >"$backend_pid_file"
 fi
 
-nohup python -m uvicorn virector.main:app \
-  --host 0.0.0.0 \
-  --port 8000 \
-  >"$log_file" 2>&1 &
-echo $! >"$pid_file"
+if [[ ! -f "$web_pid_file" ]] || ! kill -0 "$(<"$web_pid_file")" 2>/dev/null; then
+  nohup npm --prefix web run dev -- --hostname 0.0.0.0 \
+    >"$web_log_file" 2>&1 &
+  echo $! >"$web_pid_file"
+fi
 
-echo "Virector is starting at http://localhost:8000/studio/"
-echo "Server log: $log_file"
+echo "Virector Web is starting at http://localhost:3000/"
+echo "Backend log: $backend_log_file"
+echo "Web log: $web_log_file"

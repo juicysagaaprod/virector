@@ -7,15 +7,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml ./
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    mkdir -p virector && touch virector/__init__.py && \
+    mkdir -p virector && touch virector/__init__.py README.md && \
     python -m pip install --upgrade pip && \
     python -m pip install ".[dev]" && \
     if [ "$INSTALL_LTX" = "1" ]; then python -m pip install ".[ltx]"; fi && \
     rm -rf virector
 
+COPY README.md ./
 COPY virector ./virector
 COPY tests ./tests
 

@@ -10,15 +10,25 @@
     "VIRECTOR_WORKER_MODE": "mock",
     "VIRECTOR_DATA_DIR": "${containerWorkspaceFolder}/data"
   },
-  "forwardPorts": [8000],
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    }
+  },
+  "forwardPorts": [3000, 8000],
   "portsAttributes": {
-    "8000": {
-      "label": "Virector Studio",
+    "3000": {
+      "label": "Virector Web",
       "onAutoForward": "openBrowser",
+      "protocol": "http"
+    },
+    "8000": {
+      "label": "Virector API",
+      "onAutoForward": "silent",
       "protocol": "http"
     }
   },
-  "postCreateCommand": "python -m pip install --upgrade pip && python -m pip install -e '.[dev]'",
+  "postCreateCommand": "python -m pip install --upgrade pip && python -m pip install -e '.[dev]' && npm --prefix web ci",
   "postStartCommand": "bash .devcontainer/start-virector.sh",
   "customizations": {
     "vscode": {

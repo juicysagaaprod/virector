@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 import gradio as gr
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from virector.api import build_api
 from virector.config import get_settings
@@ -26,6 +27,13 @@ app = FastAPI(
     version="0.1.0",
     description="Director-control API for local and cloud AI video workers.",
     lifespan=lifespan,
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 app.include_router(build_api(job_service))
 app = gr.mount_gradio_app(app, create_studio(job_service), path="/studio")
