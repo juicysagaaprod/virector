@@ -43,7 +43,8 @@ class Settings(BaseSettings):
         validation_alias="VIRECTOR_OUTPUTS_DIR",
         repr=False,
     )
-    worker_mode: Literal["mock", "ltx", "vace"] = "mock"
+    worker_mode: Literal["mock", "ltx", "vace", "performance"] = "mock"
+    performance_segment_worker: Literal["ltx", "vace"] = "vace"
     ltx_model_repo: str = "Lightricks/LTX-Video"
     ltx_checkpoint_filename: str = "ltxv-2b-0.9.8-distilled.safetensors"
     ltx_inference_steps: int = Field(default=8, ge=1, le=50)

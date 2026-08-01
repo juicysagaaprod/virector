@@ -127,6 +127,9 @@ def build_api(
         }
         if worker.fallback_reason:
             payload["fallback_reason"] = worker.fallback_reason
+        segment_worker = getattr(worker, "segment_worker", None)
+        if segment_worker is not None:
+            payload["segment_worker_mode"] = segment_worker.mode
         return payload
 
     @router.post("/director-plans/preview", response_model=DirectorPlan)

@@ -1,5 +1,6 @@
 import json
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,6 +87,17 @@ class JobService:
         except JobRepositoryError:
             # Preserve the original rendering/storage exception for the API.
             pass
+
+    def _progress_reporter(self, job_id: str) -> Callable[[int, str], None]:
+        def report(progress: int, message: str) -> None:
+            self.job_repository.transition(
+                job_id,
+                status="rendering",
+                progress=progress,
+                message=message,
+            )
+
+        return report
 
     @staticmethod
     def _content_type(path: Path) -> str | None:
@@ -199,6 +211,7 @@ class JobService:
                             path=Path(world_path),
                         ),
                     ),
+                    progress_callback=self._progress_reporter(job_id),
                 )
             )
             status = self._result_status(result)
@@ -377,6 +390,7 @@ class JobService:
                     spec=spec,
                     reference_images=artifacts.references,
                     reference_assets=reference_assets,
+                    progress_callback=self._progress_reporter(job_id),
                 )
             )
             status = self._result_status(result)

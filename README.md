@@ -94,10 +94,34 @@ extracts:
 
 The structured plan is stored privately inside the render job's `ShotSpec`; the
 normal Studio does not expose an analysis step or timeline. The local LTX worker
-still treats the plan as a single preview request. Segment-by-segment execution,
-performance audio and final assembly belong to the upcoming cloud performance
-worker. The authenticated `POST /api/director-plans/preview` endpoint remains
+still treats the plan as a single preview request unless Performance mode is
+enabled. The authenticated `POST /api/director-plans/preview` endpoint remains
 available for developer diagnostics.
+
+### Multi-shot PerformanceWorker
+
+`PerformanceWorker` executes a hidden DirectorPlan sequentially. For each timed
+shot it:
+
+1. selects only the `@image` references assigned to that segment;
+2. creates a segment-specific prompt, duration and deterministic continuity seed;
+3. delegates generation to the configured LTX or VACE video worker;
+4. reports shot-level progress through the normal render-status endpoint; and
+5. joins the completed MP4 files into one final `preview.mp4` with FFmpeg.
+
+Enable orchestration explicitly after choosing hardware suitable for every
+segment:
+
+```text
+VIRECTOR_WORKER_MODE=performance
+VIRECTOR_PERFORMANCE_SEGMENT_WORKER=ltx
+```
+
+Use `vace` instead of `ltx` on a sufficiently large cloud GPU. Local mode stays
+on the existing worker until this setting is changed, preventing a multi-shot
+screenplay from unexpectedly starting several long renders. The PerformanceWorker
+currently assembles video segments; synthesized speech, native lip-sync and a
+mixed soundtrack require the upcoming audio-performance backend.
 
 To enable authentication locally, set the same public values in the root `.env`
 for both the API and browser, then rebuild the web image:

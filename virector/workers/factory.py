@@ -6,6 +6,7 @@ from virector.workers.ltx import (
     LtxWorkerUnavailableError,
 )
 from virector.workers.mock import MockWorker
+from virector.workers.performance import PerformanceWorker
 from virector.workers.vace import (
     VaceBackend,
     VaceWorker,
@@ -39,6 +40,22 @@ def create_worker(
 
     if settings.worker_mode == "mock":
         return MockWorker()
+
+    if settings.worker_mode == "performance":
+        segment_settings = settings.model_copy(
+            update={"worker_mode": settings.performance_segment_worker}
+        )
+        segment_worker = create_worker(
+            segment_settings,
+            ltx_backend=ltx_backend,
+            vace_backend=vace_backend,
+        )
+        if isinstance(segment_worker, MockWorker):
+            return MockWorker(
+                requested_mode="performance",
+                fallback_reason=segment_worker.fallback_reason,
+            )
+        return PerformanceWorker(segment_worker=segment_worker)
 
     if settings.worker_mode == "vace":
         if vace_backend is not None:

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from virector.models.shot_spec import ShotSpec
 
@@ -21,6 +22,7 @@ class RenderJob:
     spec: ShotSpec
     reference_images: tuple[Path, ...] = ()
     reference_assets: tuple[ReferenceAsset, ...] = ()
+    progress_callback: Callable[[int, str], None] | None = None
 
 
 @dataclass(frozen=True)
