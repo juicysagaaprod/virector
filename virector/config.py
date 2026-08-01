@@ -50,6 +50,13 @@ class Settings(BaseSettings):
         "disabled", "infinitetalk", "hunyuan-avatar"
     ] = "disabled"
     performance_audio_backend: Literal["disabled", "ffmpeg"] = "disabled"
+    wan_animate_repo_dir: Path = Path("/opt/Wan2.2")
+    wan_animate_checkpoint_dir: Path | None = None
+    wan_animate_python: str = "/opt/wan-animate-venv/bin/python"
+    wan_animate_model_repo: str = "Wan-AI/Wan2.2-Animate-14B"
+    wan_animate_inference_steps: int = Field(default=20, ge=1, le=50)
+    wan_animate_timeout_seconds: int = Field(default=7200, ge=300, le=21600)
+    wan_animate_allow_download: bool = False
     ltx_model_repo: str = "Lightricks/LTX-Video"
     ltx_checkpoint_filename: str = "ltxv-2b-0.9.8-distilled.safetensors"
     ltx_inference_steps: int = Field(default=8, ge=1, le=50)
@@ -98,6 +105,12 @@ class Settings(BaseSettings):
     def vace_checkpoint_path(self) -> Path:
         return self.vace_checkpoint_dir or (
             self.models_dir / "Wan2.1-VACE-1.3B-diffusers"
+        )
+
+    @property
+    def wan_animate_checkpoint_path(self) -> Path:
+        return self.wan_animate_checkpoint_dir or (
+            self.models_dir / "Wan2.2-Animate-14B"
         )
 
     @property

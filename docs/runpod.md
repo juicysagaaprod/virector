@@ -1,9 +1,10 @@
 # RunPod PerformanceWorker deployment
 
 Virector's RunPod image contains the VACE segment engine, multi-shot
-PerformanceWorker, FFmpeg assembly and a queue-based RunPod handler. Building
-the image does not download model weights. Weights are downloaded once at worker
-startup and retained on an attached network volume.
+PerformanceWorker, FFmpeg assembly, the official Wan2.2-Animate runtime and a
+queue-based RunPod handler. Building the image does not download model weights.
+Weights are downloaded once at worker startup and retained on an attached
+network volume.
 
 ## 1. Publish the image
 
@@ -23,8 +24,9 @@ token for packages and add it to RunPod as container-registry authentication.
 ## 2. Create persistent model storage
 
 Create a RunPod network volume in the same datacenter as the endpoint. Use at
-least 80 GB; 100 GB leaves practical room for VACE weights, Hugging Face cache
-and temporary files. Serverless mounts this volume at `/runpod-volume`.
+least 200 GB; 250 GB leaves practical room for VACE, Wan2.2-Animate, preprocessing
+checkpoints, Hugging Face cache and temporary files. Serverless mounts this
+volume at `/runpod-volume`.
 
 Do not use the network volume as Virector's permanent video store. Inputs and
 outputs travel through short-lived Cloudflare R2 signed URLs, and temporary job
@@ -34,7 +36,7 @@ files are deleted after every request.
 
 Use the published GHCR image and configure:
 
-- GPU: 48 GB for the first production test; concurrency `1`.
+- GPU: 80 GB for the first production test; concurrency `1`.
 - Active workers: `0` while testing cost controls.
 - Max workers: `1` initially.
 - Network volume: the volume created above.
@@ -45,10 +47,14 @@ The image already supplies these non-secret settings:
 ```text
 VIRECTOR_WORKER_MODE=performance
 VIRECTOR_PERFORMANCE_SEGMENT_WORKER=vace
-VIRECTOR_PERFORMANCE_MOTION_BACKEND=disabled
+VIRECTOR_PERFORMANCE_MOTION_BACKEND=wan-animate
 VIRECTOR_PERFORMANCE_SPEECH_BACKEND=disabled
 VIRECTOR_PERFORMANCE_AUDIO_BACKEND=disabled
 VIRECTOR_VACE_ALLOW_DOWNLOAD=true
+VIRECTOR_WAN_ANIMATE_REPO_DIR=/opt/Wan2.2
+VIRECTOR_WAN_ANIMATE_PYTHON=/opt/wan-animate-venv/bin/python
+VIRECTOR_WAN_ANIMATE_CHECKPOINT_DIR=/runpod-volume/virector/models/Wan2.2-Animate-14B
+VIRECTOR_WAN_ANIMATE_ALLOW_DOWNLOAD=true
 VIRECTOR_MODELS_DIR=/runpod-volume/virector/models
 VIRECTOR_CACHE_DIR=/runpod-volume/virector/cache
 ```
@@ -59,6 +65,8 @@ Optional endpoint variables:
 HF_TOKEN=your_hugging_face_token_if_required
 VIRECTOR_VACE_INFERENCE_STEPS=8
 VIRECTOR_VACE_GUIDANCE_SCALE=5.0
+VIRECTOR_WAN_ANIMATE_INFERENCE_STEPS=20
+VIRECTOR_WAN_ANIMATE_TIMEOUT_SECONDS=7200
 VIRECTOR_RUNPOD_MAX_REFERENCE_BYTES=26214400
 VIRECTOR_RUNPOD_MAX_VIDEO_BYTES=104857600
 VIRECTOR_RUNPOD_ALLOWED_ASSET_HOSTS=YOUR_ACCOUNT_ID.r2.cloudflarestorage.com
@@ -101,8 +109,23 @@ The handler validates the DirectorPlan and downloads up to twelve signed HTTPS
 assets: at most nine images, three videos and three audio files. It forwards
 shot progress to RunPod, uploads the final MP4 directly to R2, and returns only
 job metadata. The current VACE segment backend consumes image references; the
-motion, camera, effect, voice and audio assets remain available for specialized
-workers added to the performance graph.
+motion bindings with a tagged `@video` are passed through the Wan2.2-Animate
+stage after VACE generation. The base shot's first frame is used
+as the character/world reference, helping the motion pass retain the staged
+scene. Successful motion routes are persisted as `applied`. Camera, voice and
+audio remain available for the next specialist stages.
+
+Before enabling an endpoint, run the guarded preflight inside a GPU pod:
+
+```bash
+python3 -m virector.wan_animate_preflight
+python3 -m virector.wan_animate_preflight --download
+```
+
+The first command performs no download. Virector's guarded profile blocks below
+40 GB visible VRAM, 48 GB RAM or 140 GB free persistent storage and warns below
+80 GB VRAM. The 80 GB endpoint recommendation is intentionally conservative for
+the official 14B animation model and preprocessing stack.
 
 ## 5. Remaining application connection
 

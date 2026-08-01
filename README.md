@@ -145,11 +145,12 @@ mixed soundtrack require the upcoming audio-performance backend.
 
 Performance mode now compiles every `ReferenceBinding` into a private
 `conditioning_plan.json` beside the render. Each route records its shot,
-modality, assets, target backend and one of four honest capability states:
+modality, assets, target backend and one of five honest capability states:
 
 - `native`: the current generator applies that control directly;
 - `limited`: it receives only partial or text-based conditioning;
-- `external`: a configured specialist stage is expected to apply it; or
+- `external`: a configured specialist stage is waiting to apply it;
+- `applied`: the specialist stage completed successfully; or
 - `deferred`: no specialist stage is connected, so the control is preserved
   without claiming it was executed.
 
@@ -169,6 +170,15 @@ VIRECTOR_PERFORMANCE_AUDIO_BACKEND=disabled
 The health endpoint exposes the selected targets. A render result also names
 any deferred modalities, preventing a static base-model preview from being
 mistaken for completed motion transfer or lip-sync.
+
+When the cloud worker has `VIRECTOR_PERFORMANCE_MOTION_BACKEND=wan-animate`,
+motion routes execute after base shot generation. Virector extracts
+the first frame of the composed/base shot, preprocesses the tagged driving
+`@video` into pose and face controls with the official Wan2.2 tools, runs
+Wan2.2-Animate in animation mode, and changes those routes to `applied`. The
+isolated runtime is deliberately unavailable in the local Docker image.
+Camera-video bindings remain deferred until a dedicated camera-trajectory
+backend is connected; Wan2.2-Animate is not reported as applying that control.
 
 To enable authentication locally, set the same public values in the root `.env`
 for both the API and browser, then rebuild the web image:

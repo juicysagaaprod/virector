@@ -22,6 +22,7 @@ from virector.workers.vace_diffusers import (
     evaluate_vace_hardware,
     vace_frame_count,
 )
+from virector.workers.wan_animate import WanAnimateWorker
 
 
 class FakeLtxBackend:
@@ -41,6 +42,21 @@ class FakeVaceBackend:
         video = job.output_dir / "vace-preview.mp4"
         video.write_bytes(b"fake multi-reference video")
         return video
+
+
+class ReadyWanAnimateBackend:
+    def ensure_available(self) -> None:
+        pass
+
+    def render(
+        self,
+        job: RenderJob,
+        source_video: Path,
+        driving_video: Path,
+        output_path: Path,
+    ) -> Path:
+        output_path.write_bytes(b"wan video")
+        return output_path
 
 
 class CapturingSegmentWorker(VideoWorker):
@@ -159,7 +175,11 @@ def test_factory_configures_specialized_conditioning_targets(
         performance_audio_backend="ffmpeg",
     )
 
-    worker = create_worker(settings, ltx_backend=FakeLtxBackend())
+    worker = create_worker(
+        settings,
+        ltx_backend=FakeLtxBackend(),
+        wan_animate_backend=ReadyWanAnimateBackend(),
+    )
 
     assert isinstance(worker, PerformanceWorker)
     assert worker.conditioning_router.describe() == {
@@ -168,6 +188,8 @@ def test_factory_configures_specialized_conditioning_targets(
         "speech": "hunyuan-avatar",
         "audio": "ffmpeg",
     }
+    assert isinstance(worker.motion_worker, WanAnimateWorker)
+    assert worker.conditioning_fallback_reason is None
 
 
 def test_performance_worker_renders_referenced_shots_and_assembles(

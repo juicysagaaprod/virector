@@ -183,6 +183,11 @@ def build_api(
         conditioning_router = getattr(worker, "conditioning_router", None)
         if conditioning_router is not None:
             payload["conditioning_backends"] = conditioning_router.describe()
+            payload["motion_worker_ready"] = worker.motion_worker is not None
+            if worker.conditioning_fallback_reason:
+                payload["conditioning_fallback_reason"] = (
+                    worker.conditioning_fallback_reason
+                )
         return payload
 
     @router.post("/director-plans/preview", response_model=DirectorPlan)

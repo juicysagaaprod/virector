@@ -54,7 +54,7 @@ class ConditioningRouter:
                 "The selected generator receives the prompt and primary image only.",
             )
 
-        if modality in {BindingModality.motion, BindingModality.camera}:
+        if modality == BindingModality.motion:
             if self.targets.motion != "disabled":
                 return (
                     self.targets.motion,
@@ -66,6 +66,14 @@ class ConditioningRouter:
                 ConditioningRouteStatus.deferred,
                 "No motion-performance worker is connected; the base generator sees "
                 "this instruction as text only.",
+            )
+
+        if modality == BindingModality.camera:
+            return (
+                "unassigned",
+                ConditioningRouteStatus.deferred,
+                "Wan2.2-Animate transfers human pose and expression, not a "
+                "dedicated camera trajectory; no camera-control worker is connected.",
             )
 
         if modality == BindingModality.voice:
@@ -120,38 +128,12 @@ class ConditioningRouter:
                     )
                 )
 
-        deferred = sorted(
-            {
-                route.modality.value
-                for route in routes
-                if route.status == ConditioningRouteStatus.deferred
-            }
-        )
-        warnings = []
-        if deferred:
-            warnings.append(
-                "Deferred controls are preserved but not executed: "
-                + ", ".join(deferred)
-                + "."
-            )
-        external = sorted(
-            {
-                route.backend
-                for route in routes
-                if route.status == ConditioningRouteStatus.external
-            }
-        )
-        if external:
-            warnings.append(
-                "External targets are selected but require execution adapters: "
-                + ", ".join(external)
-                + "."
-            )
-        return ConditioningPlan(
+        plan = ConditioningPlan(
             generator_backend=self.generator_backend,
             routes=routes,
-            warnings=warnings,
         )
+        plan.refresh_warnings()
+        return plan
 
     def describe(self) -> dict[str, str]:
         return {

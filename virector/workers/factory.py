@@ -13,6 +13,12 @@ from virector.workers.vace import (
     VaceWorker,
     VaceWorkerUnavailableError,
 )
+from virector.workers.wan_animate import (
+    SubprocessWanAnimateBackend,
+    WanAnimateBackend,
+    WanAnimateUnavailableError,
+    WanAnimateWorker,
+)
 
 
 def _create_default_ltx_backend(settings: Settings) -> LtxBackend:
@@ -31,11 +37,16 @@ def _create_default_vace_backend(settings: Settings) -> VaceBackend:
     return backend
 
 
+def _create_default_wan_animate_backend(settings: Settings) -> WanAnimateBackend:
+    return SubprocessWanAnimateBackend(settings=settings)
+
+
 def create_worker(
     settings: Settings,
     *,
     ltx_backend: LtxBackend | None = None,
     vace_backend: VaceBackend | None = None,
+    wan_animate_backend: WanAnimateBackend | None = None,
 ) -> VideoWorker:
     """Select the configured worker and safely preserve the mock fallback."""
 
@@ -50,12 +61,23 @@ def create_worker(
             segment_settings,
             ltx_backend=ltx_backend,
             vace_backend=vace_backend,
+            wan_animate_backend=wan_animate_backend,
         )
         if isinstance(segment_worker, MockWorker):
             return MockWorker(
                 requested_mode="performance",
                 fallback_reason=segment_worker.fallback_reason,
             )
+        motion_worker = None
+        conditioning_fallback_reason = None
+        if settings.performance_motion_backend == "wan-animate":
+            try:
+                backend = wan_animate_backend or _create_default_wan_animate_backend(
+                    settings
+                )
+                motion_worker = WanAnimateWorker(backend)
+            except WanAnimateUnavailableError as exc:
+                conditioning_fallback_reason = str(exc)
         return PerformanceWorker(
             segment_worker=segment_worker,
             conditioning_router=ConditioningRouter(
@@ -66,6 +88,8 @@ def create_worker(
                     audio=settings.performance_audio_backend,
                 ),
             ),
+            motion_worker=motion_worker,
+            conditioning_fallback_reason=conditioning_fallback_reason,
         )
 
     if settings.worker_mode == "vace":

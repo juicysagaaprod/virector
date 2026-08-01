@@ -11,6 +11,7 @@ class ConditioningRouteStatus(str, Enum):
     native = "native"
     limited = "limited"
     external = "external"
+    applied = "applied"
     deferred = "deferred"
 
 
@@ -58,6 +59,23 @@ class ConditioningPlan(BaseModel):
                 if route.status == ConditioningRouteStatus.external
             }
         )
+
+    def refresh_warnings(self) -> None:
+        warnings = []
+        deferred = [modality.value for modality in self.deferred_modalities]
+        if deferred:
+            warnings.append(
+                "Deferred controls are preserved but not executed: "
+                + ", ".join(deferred)
+                + "."
+            )
+        if self.external_backends:
+            warnings.append(
+                "External targets are selected but require execution adapters: "
+                + ", ".join(self.external_backends)
+                + "."
+            )
+        self.warnings = warnings
 
     @model_validator(mode="after")
     def validate_routes(self) -> "ConditioningPlan":

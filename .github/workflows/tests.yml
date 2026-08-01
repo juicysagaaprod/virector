@@ -8,6 +8,17 @@ permissions:
   contents: read
 
 jobs:
+  runpod-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Validate RunPod Dockerfile
+        run: docker build --check -f Dockerfile.runpod .
+
   database:
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -3,12 +3,16 @@ import subprocess
 from pathlib import Path
 from typing import Protocol
 
-from virector.models.conditioning import ConditioningPlan
+from virector.models.conditioning import (
+    ConditioningPlan,
+    ConditioningRouteStatus,
+)
 from virector.models.director_plan import DirectorPlan, DirectorSegment
 from virector.models.omni_asset import BindingModality, OmniMediaType
 from virector.models.shot_spec import ShotSpec
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
 from virector.workers.conditioning import ConditioningRouter
+from virector.workers.wan_animate import WanAnimateUnavailableError, WanAnimateWorker
 
 
 class PerformanceAssemblyError(RuntimeError):
@@ -153,6 +157,8 @@ class PerformanceWorker(VideoWorker):
         segment_worker: VideoWorker,
         assembler: VideoAssembler | None = None,
         conditioning_router: ConditioningRouter | None = None,
+        motion_worker: WanAnimateWorker | None = None,
+        conditioning_fallback_reason: str | None = None,
     ) -> None:
         if isinstance(segment_worker, PerformanceWorker):
             raise ValueError("A PerformanceWorker cannot delegate to itself.")
@@ -161,7 +167,61 @@ class PerformanceWorker(VideoWorker):
         self.conditioning_router = conditioning_router or ConditioningRouter(
             generator_backend=segment_worker.mode
         )
+        self.motion_worker = motion_worker
+        self.conditioning_fallback_reason = conditioning_fallback_reason
         self.fallback_reason = segment_worker.fallback_reason
+
+    @staticmethod
+    def _write_conditioning_plan(job: RenderJob, plan: ConditioningPlan) -> None:
+        (job.output_dir / "conditioning_plan.json").write_text(
+            plan.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+
+    def _apply_motion_stage(
+        self,
+        job: RenderJob,
+        segment_index: int,
+        conditioning_plan: ConditioningPlan,
+        result: RenderResult,
+        progress: int,
+    ) -> RenderResult:
+        if self.motion_worker is None or result.video is None:
+            return result
+        routes = [
+            route
+            for route in conditioning_plan.routes
+            if route.segment_index == segment_index
+            and route.backend == self.motion_worker.mode
+            and route.status == ConditioningRouteStatus.external
+        ]
+        if not routes:
+            return result
+        if job.progress_callback:
+            job.progress_callback(progress, "Applying Wan2.2 character motion.")
+        try:
+            output = self.motion_worker.apply(job, result.video, routes)
+        except WanAnimateUnavailableError as exc:
+            return RenderResult(
+                job_id=result.job_id,
+                status="failed",
+                start_frame=result.start_frame,
+                message=f"Wan2.2 motion stage failed: {exc}",
+            )
+        for route in routes:
+            route.status = ConditioningRouteStatus.applied
+            route.reason = (
+                "Wan2.2-Animate applied the tagged driving-video motion to the "
+                "composed/base shot."
+            )
+        conditioning_plan.refresh_warnings()
+        return RenderResult(
+            job_id=result.job_id,
+            status="completed",
+            start_frame=result.start_frame,
+            video=output,
+            message=(result.message.rstrip() + " Wan2.2 motion stage applied.").strip(),
+        )
 
     @staticmethod
     def _segment_job(
@@ -249,10 +309,7 @@ class PerformanceWorker(VideoWorker):
             return self.segment_worker.render(job)
 
         conditioning_plan = self.conditioning_router.compile(plan)
-        (job.output_dir / "conditioning_plan.json").write_text(
-            conditioning_plan.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
+        self._write_conditioning_plan(job, conditioning_plan)
         if len(plan.segments) == 1:
             segment_job = self._segment_job(
                 job,
@@ -262,6 +319,14 @@ class PerformanceWorker(VideoWorker):
                 conditioning_plan,
             )
             result = self.segment_worker.render(segment_job)
+            result = self._apply_motion_stage(
+                segment_job,
+                plan.segments[0].index,
+                conditioning_plan,
+                result,
+                70,
+            )
+            self._write_conditioning_plan(job, conditioning_plan)
             result = RenderResult(
                 job_id=job.job_id,
                 status=result.status,
@@ -285,15 +350,22 @@ class PerformanceWorker(VideoWorker):
                 )
             output_dir = segments_dir / f"shot-{segment.index:02d}"
             output_dir.mkdir(parents=True, exist_ok=False)
-            result = self.segment_worker.render(
-                self._segment_job(
-                    job,
-                    plan,
-                    segment,
-                    output_dir,
-                    conditioning_plan,
-                )
+            segment_job = self._segment_job(
+                job,
+                plan,
+                segment,
+                output_dir,
+                conditioning_plan,
             )
+            result = self.segment_worker.render(segment_job)
+            result = self._apply_motion_stage(
+                segment_job,
+                segment.index,
+                conditioning_plan,
+                result,
+                25 + round(60 * (segment.index - 0.5) / total),
+            )
+            self._write_conditioning_plan(job, conditioning_plan)
             if result.status not in {"complete", "completed"} or result.video is None:
                 return RenderResult(
                     job_id=job.job_id,
@@ -327,6 +399,7 @@ class PerformanceWorker(VideoWorker):
             video=output,
             message=f"Multi-shot performance video assembled from {total} shots.",
         )
+        self._write_conditioning_plan(job, conditioning_plan)
         return self._with_conditioning_summary(result, conditioning_plan)
 
     @staticmethod
