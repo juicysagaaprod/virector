@@ -22,7 +22,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_HOME=/runpod-volume/virector/cache/torch \
     HF_HUB_DISABLE_XET=1 \
     HF_HUB_DISABLE_SYMLINKS_WARNING=1 \
-    MAX_JOBS=2
+    MAX_JOBS=2 \
+    TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0+PTX"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
@@ -32,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-pip \
         python3-venv \
         build-essential \
+        ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
 # Wan2.2-Animate is isolated because its official dependency bounds conflict
