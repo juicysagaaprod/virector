@@ -45,6 +45,9 @@ The image already supplies these non-secret settings:
 ```text
 VIRECTOR_WORKER_MODE=performance
 VIRECTOR_PERFORMANCE_SEGMENT_WORKER=vace
+VIRECTOR_PERFORMANCE_MOTION_BACKEND=disabled
+VIRECTOR_PERFORMANCE_SPEECH_BACKEND=disabled
+VIRECTOR_PERFORMANCE_AUDIO_BACKEND=disabled
 VIRECTOR_VACE_ALLOW_DOWNLOAD=true
 VIRECTOR_MODELS_DIR=/runpod-volume/virector/models
 VIRECTOR_CACHE_DIR=/runpod-volume/virector/cache

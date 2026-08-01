@@ -15,6 +15,7 @@ The starter includes:
 - Pydantic `ShotSpec`
 - Pydantic `DirectorPlan` with screenplay-to-timeline compilation
 - Hidden `OmniAsset` and per-shot `ReferenceBinding` compilation
+- Capability-aware conditioning routes with explicit deferred-stage reporting
 - Ordered `@image`, `@video` and `@audio` uploads with persistent worker transport
 - Transparent-PNG character compositor
 - Job manifests and output folders
@@ -139,6 +140,35 @@ on the existing worker until this setting is changed, preventing a multi-shot
 screenplay from unexpectedly starting several long renders. The PerformanceWorker
 currently assembles video segments; synthesized speech, native lip-sync and a
 mixed soundtrack require the upcoming audio-performance backend.
+
+### Capability-aware conditioning routes
+
+Performance mode now compiles every `ReferenceBinding` into a private
+`conditioning_plan.json` beside the render. Each route records its shot,
+modality, assets, target backend and one of four honest capability states:
+
+- `native`: the current generator applies that control directly;
+- `limited`: it receives only partial or text-based conditioning;
+- `external`: a configured specialist stage is expected to apply it; or
+- `deferred`: no specialist stage is connected, so the control is preserved
+  without claiming it was executed.
+
+VACE is treated as native for ordered visual references. LTX is marked limited
+because it currently uses the primary reference as a start frame. Motion and
+camera references can target Wan2.2-Animate; voice and lip-sync can target
+InfiniteTalk or HunyuanVideo-Avatar; soundtrack assembly can target FFmpeg.
+These targets default to `disabled` until their cloud workers are actually
+deployed:
+
+```dotenv
+VIRECTOR_PERFORMANCE_MOTION_BACKEND=disabled
+VIRECTOR_PERFORMANCE_SPEECH_BACKEND=disabled
+VIRECTOR_PERFORMANCE_AUDIO_BACKEND=disabled
+```
+
+The health endpoint exposes the selected targets. A render result also names
+any deferred modalities, preventing a static base-model preview from being
+mistaken for completed motion transfer or lip-sync.
 
 To enable authentication locally, set the same public values in the root `.env`
 for both the API and browser, then rebuild the web image:

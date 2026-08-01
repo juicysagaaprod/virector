@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     )
     worker_mode: Literal["mock", "ltx", "vace", "performance"] = "mock"
     performance_segment_worker: Literal["ltx", "vace"] = "vace"
+    performance_motion_backend: Literal["disabled", "wan-animate"] = "disabled"
+    performance_speech_backend: Literal[
+        "disabled", "infinitetalk", "hunyuan-avatar"
+    ] = "disabled"
+    performance_audio_backend: Literal["disabled", "ffmpeg"] = "disabled"
     ltx_model_repo: str = "Lightricks/LTX-Video"
     ltx_checkpoint_filename: str = "ltxv-2b-0.9.8-distilled.safetensors"
     ltx_inference_steps: int = Field(default=8, ge=1, le=50)

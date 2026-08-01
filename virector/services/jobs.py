@@ -128,6 +128,25 @@ class JobService:
             return result.status
         return "failed"
 
+    def _record_conditioning_manifest(self, job_id: str, job_dir: Path) -> None:
+        manifest = job_dir / "conditioning_plan.json"
+        if not manifest.is_file():
+            return
+        self.job_repository.add_assets(
+            job_id,
+            [
+                JobAssetRecord(
+                    kind="manifest",
+                    object_key=self.artifact_store.object_key(
+                        job_id, "conditioning_plan.json"
+                    ),
+                    content_type="application/json",
+                    size_bytes=manifest.stat().st_size,
+                    metadata={"manifest_type": "conditioning-plan"},
+                )
+            ],
+        )
+
     def create(
         self,
         character_path: str | Path,
@@ -239,6 +258,7 @@ class JobService:
                         )
                     ],
                 )
+            self._record_conditioning_manifest(job_id, job_dir)
             self.job_repository.transition(
                 job_id,
                 status=status,
@@ -461,6 +481,7 @@ class JobService:
                         )
                     ],
                 )
+            self._record_conditioning_manifest(job_id, job_dir)
             self.job_repository.transition(
                 job_id,
                 status=status,

@@ -147,6 +147,29 @@ def test_factory_selects_performance_worker_with_ltx_segments(
     assert isinstance(worker.segment_worker, LtxWorker)
 
 
+def test_factory_configures_specialized_conditioning_targets(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        data_dir=tmp_path,
+        worker_mode="performance",
+        performance_segment_worker="ltx",
+        performance_motion_backend="wan-animate",
+        performance_speech_backend="hunyuan-avatar",
+        performance_audio_backend="ffmpeg",
+    )
+
+    worker = create_worker(settings, ltx_backend=FakeLtxBackend())
+
+    assert isinstance(worker, PerformanceWorker)
+    assert worker.conditioning_router.describe() == {
+        "generator": "ltx",
+        "motion": "wan-animate",
+        "speech": "hunyuan-avatar",
+        "audio": "ffmpeg",
+    }
+
+
 def test_performance_worker_renders_referenced_shots_and_assembles(
     tmp_path: Path,
 ) -> None:

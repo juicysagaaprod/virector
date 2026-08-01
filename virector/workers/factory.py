@@ -1,5 +1,6 @@
 from virector.config import Settings
 from virector.workers.base import VideoWorker
+from virector.workers.conditioning import ConditioningRouter, ConditioningTargets
 from virector.workers.ltx import (
     LtxBackend,
     LtxWorker,
@@ -55,7 +56,17 @@ def create_worker(
                 requested_mode="performance",
                 fallback_reason=segment_worker.fallback_reason,
             )
-        return PerformanceWorker(segment_worker=segment_worker)
+        return PerformanceWorker(
+            segment_worker=segment_worker,
+            conditioning_router=ConditioningRouter(
+                generator_backend=segment_worker.mode,
+                targets=ConditioningTargets(
+                    motion=settings.performance_motion_backend,
+                    speech=settings.performance_speech_backend,
+                    audio=settings.performance_audio_backend,
+                ),
+            ),
+        )
 
     if settings.worker_mode == "vace":
         if vace_backend is not None:

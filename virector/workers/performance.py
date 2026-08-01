@@ -3,10 +3,12 @@ import subprocess
 from pathlib import Path
 from typing import Protocol
 
+from virector.models.conditioning import ConditioningPlan
 from virector.models.director_plan import DirectorPlan, DirectorSegment
 from virector.models.omni_asset import BindingModality, OmniMediaType
 from virector.models.shot_spec import ShotSpec
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
+from virector.workers.conditioning import ConditioningRouter
 
 
 class PerformanceAssemblyError(RuntimeError):
@@ -18,7 +20,11 @@ class VideoAssembler(Protocol):
         """Combine ordered video segments into one final MP4."""
 
 
-def build_segment_prompt(plan: DirectorPlan, segment: DirectorSegment) -> str:
+def build_segment_prompt(
+    plan: DirectorPlan,
+    segment: DirectorSegment,
+    conditioning_plan: ConditioningPlan | None = None,
+) -> str:
     """Convert one structured DirectorPlan segment into a worker prompt."""
 
     lines = [
@@ -35,6 +41,14 @@ def build_segment_prompt(plan: DirectorPlan, segment: DirectorSegment) -> str:
             f"ReferenceBinding [{binding.modality.value}] "
             f"({operations}; controls: {controls}): {binding.instruction}"
         )
+    if conditioning_plan is not None:
+        for route in conditioning_plan.routes:
+            if route.segment_index != segment.index:
+                continue
+            lines.append(
+                "ConditioningRoute "
+                f"[{route.modality.value}]: {route.backend} ({route.status.value})."
+            )
     for cue in segment.dialogue:
         speaker = (
             f"{cue.speaker_reference_tag} {cue.speaker}"
@@ -138,11 +152,15 @@ class PerformanceWorker(VideoWorker):
         self,
         segment_worker: VideoWorker,
         assembler: VideoAssembler | None = None,
+        conditioning_router: ConditioningRouter | None = None,
     ) -> None:
         if isinstance(segment_worker, PerformanceWorker):
             raise ValueError("A PerformanceWorker cannot delegate to itself.")
         self.segment_worker = segment_worker
         self.assembler = assembler or FfmpegVideoAssembler()
+        self.conditioning_router = conditioning_router or ConditioningRouter(
+            generator_backend=segment_worker.mode
+        )
         self.fallback_reason = segment_worker.fallback_reason
 
     @staticmethod
@@ -151,6 +169,7 @@ class PerformanceWorker(VideoWorker):
         plan: DirectorPlan,
         segment: DirectorSegment,
         output_dir: Path,
+        conditioning_plan: ConditioningPlan | None = None,
     ) -> RenderJob:
         visual_binding_tags = {
             tag
@@ -196,7 +215,11 @@ class PerformanceWorker(VideoWorker):
         if not selected_images:
             selected_images = job.reference_images
         start_frame = selected_images[0] if selected_images else job.start_frame
-        segment_prompt = build_segment_prompt(plan, segment)[:20_000]
+        segment_prompt = build_segment_prompt(
+            plan,
+            segment,
+            conditioning_plan,
+        )[:20_000]
         segment_title = f"{job.spec.title} — Shot {segment.index}"[:120]
         spec = ShotSpec.model_validate(
             {
@@ -222,8 +245,31 @@ class PerformanceWorker(VideoWorker):
 
     def render(self, job: RenderJob) -> RenderResult:
         plan = job.spec.director_plan
-        if plan is None or len(plan.segments) == 1:
+        if plan is None:
             return self.segment_worker.render(job)
+
+        conditioning_plan = self.conditioning_router.compile(plan)
+        (job.output_dir / "conditioning_plan.json").write_text(
+            conditioning_plan.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        if len(plan.segments) == 1:
+            segment_job = self._segment_job(
+                job,
+                plan,
+                plan.segments[0],
+                job.output_dir,
+                conditioning_plan,
+            )
+            result = self.segment_worker.render(segment_job)
+            result = RenderResult(
+                job_id=job.job_id,
+                status=result.status,
+                start_frame=result.start_frame,
+                video=result.video,
+                message=result.message,
+            )
+            return self._with_conditioning_summary(result, conditioning_plan)
 
         segments_dir = job.output_dir / "segments"
         segments_dir.mkdir(parents=True, exist_ok=True)
@@ -240,7 +286,13 @@ class PerformanceWorker(VideoWorker):
             output_dir = segments_dir / f"shot-{segment.index:02d}"
             output_dir.mkdir(parents=True, exist_ok=False)
             result = self.segment_worker.render(
-                self._segment_job(job, plan, segment, output_dir)
+                self._segment_job(
+                    job,
+                    plan,
+                    segment,
+                    output_dir,
+                    conditioning_plan,
+                )
             )
             if result.status not in {"complete", "completed"} or result.video is None:
                 return RenderResult(
@@ -268,10 +320,43 @@ class PerformanceWorker(VideoWorker):
                 start_frame=job.start_frame,
                 message=str(exc),
             )
-        return RenderResult(
+        result = RenderResult(
             job_id=job.job_id,
             status="completed",
             start_frame=job.start_frame,
             video=output,
             message=f"Multi-shot performance video assembled from {total} shots.",
+        )
+        return self._with_conditioning_summary(result, conditioning_plan)
+
+    @staticmethod
+    def _with_conditioning_summary(
+        result: RenderResult,
+        plan: ConditioningPlan,
+    ) -> RenderResult:
+        deferred = ", ".join(
+            modality.value for modality in plan.deferred_modalities
+        )
+        external = ", ".join(plan.external_backends)
+        if not deferred and not external:
+            return result
+        message = result.message.rstrip()
+        if message and not message.endswith("."):
+            message += "."
+        details = []
+        if deferred:
+            details.append(
+                f"Deferred conditioning: {deferred}; specialized workers "
+                "are not connected."
+            )
+        if external:
+            details.append(
+                f"External conditioning targets pending execution adapters: {external}."
+            )
+        return RenderResult(
+            job_id=result.job_id,
+            status=result.status,
+            start_frame=result.start_frame,
+            video=result.video,
+            message=f"{message} {' '.join(details)}".strip(),
         )

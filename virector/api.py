@@ -165,7 +165,7 @@ def build_api(
         )
 
     @router.get("/health")
-    def health() -> dict[str, str | bool]:
+    def health() -> dict[str, object]:
         worker = job_service.worker
         payload = {
             "status": "ok",
@@ -180,6 +180,9 @@ def build_api(
         segment_worker = getattr(worker, "segment_worker", None)
         if segment_worker is not None:
             payload["segment_worker_mode"] = segment_worker.mode
+        conditioning_router = getattr(worker, "conditioning_router", None)
+        if conditioning_router is not None:
+            payload["conditioning_backends"] = conditioning_router.describe()
         return payload
 
     @router.post("/director-plans/preview", response_model=DirectorPlan)
