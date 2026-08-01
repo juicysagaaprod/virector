@@ -109,6 +109,9 @@ composition and style roles automatically. They also compile visible and
 off-screen voice bindings, multi-angle identity groups, preservation constraints
 and reference operations such as extract, combine, follow, replace and maintain.
 The internal contract is documented in [`docs/omni-assets.md`](docs/omni-assets.md).
+The compiler is protected by a guide-pattern compatibility suite; see
+[`docs/prompt-guide-compatibility.md`](docs/prompt-guide-compatibility.md) for
+supported image/directing patterns and the executable video/audio backlog.
 
 ### Multi-shot PerformanceWorker
 

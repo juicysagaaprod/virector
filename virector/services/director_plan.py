@@ -101,11 +101,14 @@ def _asset_roles(description: str) -> list[AssetRole]:
     normalised = _normalise(description)
     words = set(normalised.split())
     roles: list[AssetRole] = []
+    document_or_graphic = bool(
+        words & {"document", "folder", "id", "logo", "message", "sign", "text"}
+    )
     if normalised.startswith("unlabelled image"):
         return [AssetRole.style]
     if words & {"storyboard", "panel", "panels"}:
         roles.extend([AssetRole.storyboard, AssetRole.composition])
-    if words & ENVIRONMENT_WORDS:
+    if words & ENVIRONMENT_WORDS and not document_or_graphic:
         roles.extend([AssetRole.environment, AssetRole.composition])
     if words & PROP_WORDS:
         roles.append(AssetRole.prop)
