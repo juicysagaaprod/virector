@@ -47,6 +47,27 @@ async function responsePayload(response: Response) {
   }
 }
 
+async function authHeaders(forceRefresh = false) {
+  if (!supabase) return undefined;
+
+  let result = forceRefresh
+    ? await supabase.auth.refreshSession()
+    : await supabase.auth.getSession();
+  let activeSession = result.data.session;
+
+  const expiresSoon =
+    activeSession?.expires_at !== undefined &&
+    activeSession.expires_at * 1000 <= Date.now() + 60_000;
+  if (!forceRefresh && expiresSoon) {
+    result = await supabase.auth.refreshSession();
+    activeSession = result.data.session;
+  }
+
+  if (result.error) throw new Error(result.error.message);
+  if (!activeSession) throw new Error("Your session expired. Please sign in again.");
+  return { Authorization: `Bearer ${activeSession.access_token}` };
+}
+
 export default function DirectorStudio() {
   const [references, setReferences] = useState<ReferenceUpload[]>([]);
   const [prompt, setPrompt] = useState("");
@@ -205,13 +226,15 @@ export default function DirectorStudio() {
     });
   }
 
-  async function waitForRender(jobId: string, accessToken?: string) {
-    const headers = accessToken
-      ? { Authorization: `Bearer ${accessToken}` }
-      : undefined;
+  async function waitForRender(jobId: string) {
     for (let attempt = 0; attempt < 600; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
-      const response = await fetch(`/api/renders/${jobId}`, { headers });
+      let headers = await authHeaders();
+      let response = await fetch(`/api/renders/${jobId}`, { headers });
+      if (response.status === 401 && supabase) {
+        headers = await authHeaders(true);
+        response = await fetch(`/api/renders/${jobId}`, { headers });
+      }
       const payload = await responsePayload(response);
       if (response.status === 404 && attempt < 5) continue;
       if (!response.ok) {
@@ -284,10 +307,7 @@ export default function DirectorStudio() {
     if (selectedProjectId) form.append("project_id", selectedProjectId);
 
     try {
-      const accessToken = session?.access_token;
-      const headers = accessToken
-        ? { Authorization: `Bearer ${accessToken}` }
-        : undefined;
+      const headers = await authHeaders();
       const response = await fetch("/api/renders", {
         method: "POST",
         headers,
@@ -304,7 +324,7 @@ export default function DirectorStudio() {
 
       const render = payload as unknown as RenderResponse;
       setStatus(`${render.message || render.status} Job: ${render.job_id}`);
-      await waitForRender(render.job_id, accessToken);
+      await waitForRender(render.job_id);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Render request failed.");
     } finally {
