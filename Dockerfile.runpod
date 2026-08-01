@@ -21,7 +21,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HF_HOME=/runpod-volume/virector/cache/huggingface \
     TORCH_HOME=/runpod-volume/virector/cache/torch \
     HF_HUB_DISABLE_XET=1 \
-    HF_HUB_DISABLE_SYMLINKS_WARNING=1
+    HF_HUB_DISABLE_SYMLINKS_WARNING=1 \
+    MAX_JOBS=2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
@@ -40,13 +41,23 @@ RUN git clone https://github.com/Wan-Video/Wan2.2.git /opt/Wan2.2 && \
     python3 -m venv /opt/wan-animate-venv && \
     /opt/wan-animate-venv/bin/python -m pip install --upgrade \
         pip setuptools wheel packaging ninja && \
+    /opt/wan-animate-venv/bin/python -m pip install \
+        torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
+        --index-url https://download.pytorch.org/whl/cu128 && \
     sed '/^flash_attn$/d' requirements.txt > /tmp/wan-requirements.txt && \
+    sed '/facebookresearch\/sam2/d' requirements_animate.txt \
+        > /tmp/wan-animate-requirements.txt && \
     /opt/wan-animate-venv/bin/python -m pip install \
         -r /tmp/wan-requirements.txt \
-        -r requirements_animate.txt && \
+        -r /tmp/wan-animate-requirements.txt && \
+    /opt/wan-animate-venv/bin/python -m pip install \
+        --no-build-isolation \
+        -e "git+https://github.com/facebookresearch/sam2.git@0e78a118995e66bb27d78518c4bd9a3e95b4e266#egg=SAM-2" && \
     /opt/wan-animate-venv/bin/python -m pip install \
         flash-attn --no-build-isolation && \
-    rm -rf /root/.cache/pip /tmp/wan-requirements.txt
+    rm -rf /root/.cache/pip \
+        /tmp/wan-requirements.txt \
+        /tmp/wan-animate-requirements.txt
 
 WORKDIR /app
 
