@@ -127,8 +127,33 @@ The first command performs no download. Virector's guarded profile blocks below
 80 GB VRAM. The 80 GB endpoint recommendation is intentionally conservative for
 the official 14B animation model and preprocessing stack.
 
-## 5. Remaining application connection
+## 5. Connect the FastAPI service
 
-Packaging is complete when the image builds successfully. The next milestone is
-the FastAPI `RunpodWorker` client: it will create R2 signed URLs, call the RunPod
-`/run` endpoint, poll job status, and update the existing Supabase render events.
+The API-side `RunpodWorker` uploads tagged references to R2, creates short-lived
+download and upload URLs, submits the queue job through `/run`, polls `/status`,
+forwards progress into the existing render record and downloads the completed
+MP4 for normal publication.
+
+Configure the private FastAPI environment (never the browser bundle):
+
+```text
+VIRECTOR_WORKER_MODE=runpod
+VIRECTOR_STORAGE_BACKEND=s3
+VIRECTOR_S3_ENDPOINT_URL=https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com
+VIRECTOR_S3_REGION=auto
+VIRECTOR_S3_BUCKET=virector-bucket
+VIRECTOR_S3_ACCESS_KEY_ID=your_private_r2_access_key
+VIRECTOR_S3_SECRET_ACCESS_KEY=your_private_r2_secret_key
+VIRECTOR_S3_PRESIGNED_URL_TTL_SECONDS=10800
+VIRECTOR_RUNPOD_ENDPOINT_ID=your_endpoint_id
+VIRECTOR_RUNPOD_API_KEY=your_endpoint_scoped_api_key
+VIRECTOR_RUNPOD_API_BASE_URL=https://api.runpod.ai/v2
+VIRECTOR_RUNPOD_REQUEST_TIMEOUT_SECONDS=30
+VIRECTOR_RUNPOD_POLL_INTERVAL_SECONDS=3
+VIRECTOR_RUNPOD_JOB_TIMEOUT_SECONDS=7200
+```
+
+The signed-URL TTL must exceed the RunPod job timeout by at least five minutes,
+because the output upload URL is used only after generation finishes. Keep
+active workers at zero during testing; the first submitted render will scale a
+worker up and begin GPU billing.

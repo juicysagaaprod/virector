@@ -8,6 +8,11 @@ from virector.workers.ltx import (
 )
 from virector.workers.mock import MockWorker
 from virector.workers.performance import PerformanceWorker
+from virector.workers.runpod import (
+    HttpRunpodQueueClient,
+    RunpodQueueClient,
+    RunpodWorker,
+)
 from virector.workers.vace import (
     VaceBackend,
     VaceWorker,
@@ -47,11 +52,40 @@ def create_worker(
     ltx_backend: LtxBackend | None = None,
     vace_backend: VaceBackend | None = None,
     wan_animate_backend: WanAnimateBackend | None = None,
+    runpod_queue_client: RunpodQueueClient | None = None,
+    runpod_s3_client: object | None = None,
 ) -> VideoWorker:
     """Select the configured worker and safely preserve the mock fallback."""
 
     if settings.worker_mode == "mock":
         return MockWorker()
+
+    if settings.worker_mode == "runpod":
+        try:
+            settings.validate_runpod_configuration()
+            if runpod_queue_client is None:
+                assert settings.runpod_endpoint_id is not None
+                assert settings.runpod_api_key is not None
+                runpod_queue_client = HttpRunpodQueueClient(
+                    endpoint_id=settings.runpod_endpoint_id,
+                    api_key=settings.runpod_api_key.get_secret_value(),
+                    base_url=settings.runpod_api_base_url,
+                    request_timeout_seconds=settings.runpod_request_timeout_seconds,
+                )
+            if runpod_s3_client is None:
+                from virector.services.storage import create_s3_client
+
+                runpod_s3_client = create_s3_client(settings)
+            return RunpodWorker(
+                settings=settings,
+                queue_client=runpod_queue_client,
+                s3_client=runpod_s3_client,
+            )
+        except (RuntimeError, ValueError) as exc:
+            return MockWorker(
+                requested_mode="runpod",
+                fallback_reason=str(exc),
+            )
 
     if settings.worker_mode == "performance":
         segment_settings = settings.model_copy(

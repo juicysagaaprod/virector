@@ -106,6 +106,32 @@ class S3ArtifactStore:
         return ArtifactLocation(url=url)
 
 
+def create_s3_client(settings: Settings) -> Any:
+    """Create the configured private S3-compatible client."""
+
+    settings.validate_cloud_configuration()
+    if settings.storage_backend != "s3":
+        raise ArtifactStorageError(
+            "S3 client creation requires VIRECTOR_STORAGE_BACKEND=s3."
+        )
+    try:
+        import boto3
+    except ImportError as exc:
+        raise ArtifactStorageError(
+            "S3-compatible storage requires the boto3 runtime dependency."
+        ) from exc
+
+    assert settings.s3_access_key_id is not None
+    assert settings.s3_secret_access_key is not None
+    return boto3.client(
+        "s3",
+        endpoint_url=settings.s3_endpoint_url,
+        region_name=settings.s3_region,
+        aws_access_key_id=settings.s3_access_key_id.get_secret_value(),
+        aws_secret_access_key=settings.s3_secret_access_key.get_secret_value(),
+    )
+
+
 def create_artifact_store(
     settings: Settings,
     *,
@@ -116,22 +142,7 @@ def create_artifact_store(
         return LocalArtifactStore(settings.outputs_dir)
 
     if s3_client is None:
-        try:
-            import boto3
-        except ImportError as exc:
-            raise ArtifactStorageError(
-                "S3-compatible storage requires the boto3 runtime dependency."
-            ) from exc
-
-        assert settings.s3_access_key_id is not None
-        assert settings.s3_secret_access_key is not None
-        s3_client = boto3.client(
-            "s3",
-            endpoint_url=settings.s3_endpoint_url,
-            region_name=settings.s3_region,
-            aws_access_key_id=settings.s3_access_key_id.get_secret_value(),
-            aws_secret_access_key=settings.s3_secret_access_key.get_secret_value(),
-        )
+        s3_client = create_s3_client(settings)
 
     assert settings.s3_bucket is not None
     return S3ArtifactStore(

@@ -43,7 +43,13 @@ class Settings(BaseSettings):
         validation_alias="VIRECTOR_OUTPUTS_DIR",
         repr=False,
     )
-    worker_mode: Literal["mock", "ltx", "vace", "performance"] = "mock"
+    worker_mode: Literal["mock", "ltx", "vace", "performance", "runpod"] = "mock"
+    runpod_endpoint_id: str | None = None
+    runpod_api_key: SecretStr | None = Field(default=None, repr=False)
+    runpod_api_base_url: str = "https://api.runpod.ai/v2"
+    runpod_request_timeout_seconds: float = Field(default=30.0, ge=5.0, le=120.0)
+    runpod_poll_interval_seconds: float = Field(default=3.0, ge=0.1, le=30.0)
+    runpod_job_timeout_seconds: int = Field(default=7200, ge=60, le=21600)
     performance_segment_worker: Literal["ltx", "vace"] = "vace"
     performance_motion_backend: Literal["disabled", "wan-animate"] = "disabled"
     performance_speech_backend: Literal[
@@ -180,6 +186,40 @@ class Settings(BaseSettings):
         if not self.supabase_url or not self.supabase_url.strip():
             raise ValueError(
                 "Authentication is required but VIRECTOR_SUPABASE_URL is missing."
+            )
+
+    def validate_runpod_configuration(self) -> None:
+        if self.worker_mode != "runpod":
+            return
+        self.validate_cloud_configuration()
+        if self.storage_backend != "s3":
+            raise ValueError(
+                "RunPod rendering requires VIRECTOR_STORAGE_BACKEND=s3."
+            )
+        required = {
+            "VIRECTOR_RUNPOD_ENDPOINT_ID": self.runpod_endpoint_id,
+            "VIRECTOR_RUNPOD_API_KEY": self.runpod_api_key,
+        }
+        missing = []
+        for name, value in required.items():
+            if isinstance(value, SecretStr):
+                configured = bool(value.get_secret_value().strip())
+            elif isinstance(value, str):
+                configured = bool(value.strip())
+            else:
+                configured = value is not None
+            if not configured:
+                missing.append(name)
+        if missing:
+            raise ValueError(
+                "RunPod rendering is enabled but required settings are missing: "
+                f"{', '.join(missing)}."
+            )
+        minimum_ttl = self.runpod_job_timeout_seconds + 300
+        if self.s3_presigned_url_ttl_seconds < minimum_ttl:
+            raise ValueError(
+                "VIRECTOR_S3_PRESIGNED_URL_TTL_SECONDS must be at least "
+                f"{minimum_ttl} for the configured RunPod job timeout."
             )
 
 

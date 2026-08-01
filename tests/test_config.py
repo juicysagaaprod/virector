@@ -106,3 +106,25 @@ def test_required_auth_requires_supabase_url() -> None:
 
     with pytest.raises(ValueError, match="VIRECTOR_SUPABASE_URL"):
         settings.validate_auth_configuration()
+
+
+def test_runpod_requires_signed_urls_longer_than_job_timeout(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path,
+        worker_mode="runpod",
+        storage_backend="s3",
+        s3_endpoint_url="https://account.r2.cloudflarestorage.com",
+        s3_bucket="virector-bucket",
+        s3_access_key_id="access-key",
+        s3_secret_access_key="secret-key",
+        s3_presigned_url_ttl_seconds=900,
+        runpod_endpoint_id="endpoint-id",
+        runpod_api_key="runpod-key",
+        runpod_job_timeout_seconds=7200,
+    )
+
+    with pytest.raises(ValueError, match="PRESIGNED_URL_TTL_SECONDS"):
+        settings.validate_runpod_configuration()
