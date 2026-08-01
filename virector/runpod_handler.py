@@ -3,7 +3,11 @@ import os
 import runpod
 
 from virector.config import get_settings
-from virector.runpod_runtime import RemoteFileClient, RunpodPerformanceRuntime
+from virector.runpod_runtime import (
+    RemoteFileClient,
+    RunpodPerformanceRuntime,
+    require_cuda_runtime,
+)
 from virector.workers.factory import create_worker
 
 
@@ -13,6 +17,7 @@ def create_runtime() -> RunpodPerformanceRuntime:
         raise RuntimeError(
             "RunPod requires VIRECTOR_WORKER_MODE=performance."
         )
+    require_cuda_runtime()
     worker = create_worker(settings)
     if worker.mode != "performance":
         raise RuntimeError(

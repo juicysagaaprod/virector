@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -11,6 +12,7 @@ from virector.runpod_runtime import (
     RunpodPayloadError,
     RunpodPerformanceRuntime,
     RunpodRenderInput,
+    require_cuda_runtime,
 )
 from virector.services.director_plan import compile_director_plan
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
@@ -29,6 +31,30 @@ Image References
 0:02-0:04
 @image1 crosses @image2.
 """
+
+
+def test_require_cuda_runtime_accepts_visible_gpu() -> None:
+    torch_module = SimpleNamespace(
+        __version__="2.11.0+cu128",
+        version=SimpleNamespace(cuda="12.8"),
+        cuda=SimpleNamespace(is_available=lambda: True),
+    )
+
+    require_cuda_runtime(torch_module)
+
+
+def test_require_cuda_runtime_reports_incompatible_wheel() -> None:
+    torch_module = SimpleNamespace(
+        __version__="2.12.0+cu130",
+        version=SimpleNamespace(cuda="13.0"),
+        cuda=SimpleNamespace(is_available=lambda: False),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"PyTorch 2\.12\.0\+cu130 \(CUDA build: 13\.0\)",
+    ):
+        require_cuda_runtime(torch_module)
 
 
 class FakeRemoteFiles:

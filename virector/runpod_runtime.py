@@ -16,6 +16,26 @@ class RunpodPayloadError(ValueError):
     """Raised when a RunPod job does not satisfy the Virector contract."""
 
 
+def require_cuda_runtime(torch_module: object | None = None) -> None:
+    """Fail before model downloads when the RunPod image cannot see its GPU."""
+
+    if torch_module is None:
+        import torch as torch_module
+
+    cuda = getattr(torch_module, "cuda", None)
+    cuda_available = bool(cuda and cuda.is_available())
+    if cuda_available:
+        return
+
+    version = getattr(torch_module, "__version__", "unknown")
+    torch_version = getattr(torch_module, "version", None)
+    cuda_build = getattr(torch_version, "cuda", None) or "CPU-only"
+    raise RuntimeError(
+        "RunPod GPU is not available to PyTorch "
+        f"{version} (CUDA build: {cuda_build})."
+    )
+
+
 class RemoteReference(BaseModel):
     index: int = Field(ge=1, le=9)
     tag: str = Field(pattern=r"^@(image[1-9]|video[1-3]|audio[1-3])$")
