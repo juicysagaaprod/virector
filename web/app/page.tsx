@@ -33,38 +33,6 @@ type Project = {
   name: string;
 };
 
-type DirectorDialogueCue = {
-  speaker: string;
-  text: string;
-  delivery: string | null;
-  speaker_reference_tag: string | null;
-};
-
-type DirectorSegment = {
-  index: number;
-  start_seconds: number;
-  end_seconds: number;
-  duration_seconds: number;
-  action: string;
-  reference_tags: string[];
-  dialogue: DirectorDialogueCue[];
-  sound_cues: string[];
-  on_screen_text: string[];
-  transition: string | null;
-  title_card: string | null;
-};
-
-type DirectorPlanPreview = {
-  title: string;
-  requested_model: string | null;
-  method: string | null;
-  purpose: string | null;
-  voice_direction: string | null;
-  duration_seconds: number;
-  segments: DirectorSegment[];
-  warnings: string[];
-};
-
 function fileSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
@@ -118,8 +86,6 @@ export default function DirectorStudio() {
   const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [authBusy, setAuthBusy] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
-  const [directorPlan, setDirectorPlan] = useState<DirectorPlanPreview | null>(null);
-  const [isPlanning, setIsPlanning] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [newProjectName, setNewProjectName] = useState("My Virector Project");
@@ -260,63 +226,6 @@ export default function DirectorStudio() {
     });
   }
 
-  async function analyzeDirectorPlan() {
-    if (!prompt.trim()) {
-      setStatus("Write or paste a direction prompt before analyzing it.");
-      return;
-    }
-
-    setIsPlanning(true);
-    setDirectorPlan(null);
-    setStatus("Compiling the screenplay into a DirectorPlan…");
-    try {
-      let authorization = await authHeaders();
-      let response = await fetch("/api/director-plans/preview", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authorization ?? {}),
-        },
-        body: JSON.stringify({ direction_prompt: prompt }),
-      });
-      if (response.status === 401 && supabase) {
-        authorization = await authHeaders(true);
-        response = await fetch("/api/director-plans/preview", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(authorization ?? {}),
-          },
-          body: JSON.stringify({ direction_prompt: prompt }),
-        });
-      }
-      const payload = await responsePayload(response);
-      if (!response.ok) {
-        throw new Error(
-          typeof payload.detail === "string"
-            ? payload.detail
-            : "The DirectorPlan could not be compiled.",
-        );
-      }
-
-      const plan = payload as unknown as DirectorPlanPreview;
-      setDirectorPlan(plan);
-      setTitle(plan.title);
-      setDuration(plan.duration_seconds);
-      setStatus(
-        plan.segments.length > 1
-          ? `DirectorPlan compiled into ${plan.segments.length} timed shots. Multi-shot performance rendering is the next worker milestone.`
-          : "DirectorPlan compiled into one renderable shot.",
-      );
-    } catch (error) {
-      setStatus(
-        error instanceof Error ? error.message : "DirectorPlan analysis failed.",
-      );
-    } finally {
-      setIsPlanning(false);
-    }
-  }
-
   async function waitForRender(jobId: string) {
     for (let attempt = 0; attempt < 600; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
@@ -423,11 +332,8 @@ export default function DirectorStudio() {
     }
   }
 
-  const multiShotPlan = (directorPlan?.segments.length ?? 0) > 1;
   const renderDisabled =
     isRendering ||
-    isPlanning ||
-    multiShotPlan ||
     (supabaseConfigured && (!session || !selectedProjectId));
 
   return (
@@ -533,59 +439,13 @@ export default function DirectorStudio() {
           )}
           <div className="prompt-block">
             <div className="panel-heading compact"><div><span className="step">02</span><h2>Direction prompt</h2></div></div>
-            <textarea value={prompt} onChange={(event) => { setPrompt(event.target.value); setDirectorPlan(null); }} placeholder="Paste a complete screenplay with image definitions and timed sections, or direct one shot using @image tags." maxLength={4000} required />
+            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Paste a complete screenplay with image definitions and timed sections, or direct one shot using @image tags." maxLength={20000} required />
             <div className="prompt-footer">
               <span>{referenceTags.length ? `Use ${referenceTags.join(", ")}` : "Upload images to create prompt tags"}</span>
-              <span>{prompt.length}/4000</span>
+              <span>{prompt.length}/20000</span>
             </div>
-            <div className="plan-controls">
-              <button type="button" onClick={analyzeDirectorPlan} disabled={isPlanning || !prompt.trim()}>
-                {isPlanning ? "Analyzing screenplay…" : "Analyze DirectorPlan"}
-              </button>
-              <span>Compiles timing, references, dialogue, sound and transitions before GPU rendering.</span>
-            </div>
+            <p className="prompt-hint">Timing, references, dialogue, sound and transitions are interpreted automatically when you generate.</p>
           </div>
-          {directorPlan && (
-            <section className="director-plan" aria-live="polite">
-              <div className="plan-heading">
-                <div><span className="step">DirectorPlan</span><h2>{directorPlan.title}</h2></div>
-                <strong>{directorPlan.duration_seconds}s · {directorPlan.segments.length} shots</strong>
-              </div>
-              <div className="plan-meta">
-                {directorPlan.method && <span>{directorPlan.method}</span>}
-                {directorPlan.voice_direction && <span>Voice: {directorPlan.voice_direction}</span>}
-              </div>
-              <div className="timeline">
-                {directorPlan.segments.map((segment) => (
-                  <article className="timeline-shot" key={segment.index}>
-                    <div className="shot-time">
-                      <strong>Shot {segment.index}</strong>
-                      <span>{segment.start_seconds.toFixed(0)}s–{segment.end_seconds.toFixed(0)}s</span>
-                    </div>
-                    <div className="shot-tags">
-                      {segment.reference_tags.map((tag) => <span key={tag}>{tag}</span>)}
-                    </div>
-                    <p>{segment.action}</p>
-                    {segment.dialogue.map((cue, index) => (
-                      <blockquote key={`${cue.speaker}-${index}`}>
-                        <strong>{cue.speaker_reference_tag ? `${cue.speaker_reference_tag} · ` : ""}{cue.speaker}</strong>
-                        {cue.delivery ? ` (${cue.delivery})` : ""}: “{cue.text}”
-                      </blockquote>
-                    ))}
-                    {segment.sound_cues.map((cue) => <small key={cue}>Sound · {cue}</small>)}
-                    {segment.on_screen_text.map((cue) => <small key={cue}>Screen · {cue}</small>)}
-                    {segment.transition && <small>Transition · {segment.transition}</small>}
-                    {segment.title_card && <small>Title card · {segment.title_card}</small>}
-                  </article>
-                ))}
-              </div>
-              {directorPlan.warnings.length > 0 && (
-                <div className="plan-warnings">
-                  {directorPlan.warnings.map((warning) => <p key={warning}>{warning}</p>)}
-                </div>
-              )}
-            </section>
-          )}
         </section>
 
         <aside className="panel output-panel">
@@ -602,7 +462,7 @@ export default function DirectorStudio() {
             <label className="wide range-field"><span>Duration <strong>{duration}s</strong></span><input type="range" min="1" max="15" value={duration} onChange={(event) => setDuration(Number(event.target.value))} /><div><span>1s</span><span>15s</span></div></label>
             <label className="wide"><span>Continuity seed</span><input type="number" min="0" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></label>
           </div>
-          <button className="render-button" type="submit" disabled={renderDisabled}>{isRendering ? "Directing shot…" : multiShotPlan ? "Multi-shot worker next" : "Generate video"}<span>↗</span></button>
+          <button className="render-button" type="submit" disabled={renderDisabled}>{isRendering ? "Directing shot…" : "Generate video"}<span>↗</span></button>
           <div className="status-box" aria-live="polite"><span className="status-label">Render status</span><p>{status}</p></div>
         </aside>
       </form>

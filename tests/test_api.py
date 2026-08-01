@@ -133,6 +133,9 @@ def test_render_api_accepts_ordered_omni_references(tmp_path: Path) -> None:
     assert worker.job.spec.duration_seconds == 5
     assert worker.job.spec.aspect_ratio == "16:9"
     assert worker.job.spec.output_resolution == "720p"
+    assert worker.job.spec.director_plan is not None
+    assert len(worker.job.spec.director_plan.segments) == 1
+    assert worker.job.spec.director_plan.duration_seconds == 5
 
     status_response = client.get(f"/api/renders/{payload['job_id']}")
     assert status_response.status_code == 200
@@ -196,6 +199,36 @@ def test_director_plan_preview_compiles_timed_shots(tmp_path: Path) -> None:
     assert len(payload["segments"]) == 2
     assert payload["segments"][0]["reference_tags"] == ["@image1", "@image2"]
     assert payload["segments"][1]["transition"] == "Hard cut to black."
+
+
+def test_render_compiles_director_plan_without_exposing_it(tmp_path: Path) -> None:
+    worker = ApiWorker(create_video=True)
+    client = make_client(tmp_path, worker)
+
+    response = client.post(
+        "/api/renders",
+        files=[
+            (
+                "reference_images",
+                ("marcia.png", image_bytes((120, 40, 60)), "image/png"),
+            ),
+            (
+                "reference_images",
+                ("teddy.png", image_bytes((20, 80, 120)), "image/png"),
+            ),
+        ],
+        data={"direction_prompt": DIRECTOR_PROMPT},
+    )
+
+    assert response.status_code == 202
+    assert "director_plan" not in response.json()
+    assert worker.job is not None
+    plan = worker.job.spec.director_plan
+    assert plan is not None
+    assert plan.title == "CLIP 8 — DON’T CALL MICAH"
+    assert len(plan.segments) == 2
+    assert worker.job.spec.duration_seconds == 6
+    assert plan.segments[1].dialogue[0].speaker == "Uncle Teddy"
 
 
 def test_director_plan_preview_requires_auth_when_enabled(tmp_path: Path) -> None:

@@ -79,10 +79,10 @@ the HTTP request. The web client polls the owner-scoped
 video only after the job reaches `completed`. This keeps FastAPI responsive
 while local or cloud GPU work is running.
 
-### DirectorPlan screenplay preview
+### Automatic DirectorPlan compilation
 
-The production Studio can compile a screenplay-style direction prompt before
-rendering. Use headings such as `Image References`, ordered `@image1:` through
+The production Studio compiles every screenplay-style direction prompt in the
+backend when **Generate video** is selected. Use headings such as `Image References`, ordered `@image1:` through
 `@image9:` definitions and timed ranges such as `0:00-0:03`. DirectorPlan
 extracts:
 
@@ -92,11 +92,12 @@ extracts:
 - sound cues and on-screen messages; and
 - transitions and title cards.
 
-Select **Analyze DirectorPlan** below the direction prompt to inspect the
-compiled timeline. Multi-shot plans remain deliberately blocked from the
-single-shot LTX worker until the cloud performance worker and final assembly
-pipeline are connected. The authenticated preview endpoint is
-`POST /api/director-plans/preview`.
+The structured plan is stored privately inside the render job's `ShotSpec`; the
+normal Studio does not expose an analysis step or timeline. The local LTX worker
+still treats the plan as a single preview request. Segment-by-segment execution,
+performance audio and final assembly belong to the upcoming cloud performance
+worker. The authenticated `POST /api/director-plans/preview` endpoint remains
+available for developer diagnostics.
 
 To enable authentication locally, set the same public values in the root `.env`
 for both the API and browser, then rebuild the web image:

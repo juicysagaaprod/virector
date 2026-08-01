@@ -80,12 +80,16 @@ def _metadata(header: str) -> dict[str, str]:
     }
 
 
-def _duration(metadata: dict[str, str], final_segment_end: float) -> float:
+def _duration(
+    metadata: dict[str, str],
+    final_segment_end: float,
+    fallback_duration: float = 4.0,
+) -> float:
     configured = metadata.get("duration", "")
     match = re.search(r"\d+(?:\.\d+)?", configured)
     duration = float(match.group()) if match else final_segment_end
     if duration <= 0:
-        duration = 4.0
+        duration = fallback_duration
     return max(duration, final_segment_end)
 
 
@@ -216,7 +220,10 @@ def _segment(
     )
 
 
-def compile_director_plan(direction_prompt: str) -> DirectorPlan:
+def compile_director_plan(
+    direction_prompt: str,
+    fallback_duration: float = 4.0,
+) -> DirectorPlan:
     """Compile Virector's screenplay-style direction prompt into timed shots."""
 
     prompt = direction_prompt.replace("\r\n", "\n").strip()
@@ -283,12 +290,16 @@ def compile_director_plan(direction_prompt: str) -> DirectorPlan:
                     key=lambda tag: int(tag.removeprefix("@image")),
                 )
     else:
-        fallback_duration = _duration(metadata, 0)
+        fallback_duration = _duration(metadata, 0, fallback_duration)
         segments.append(
             _segment(1, 0, fallback_duration, prompt, references)
         )
 
-    duration_seconds = _duration(metadata, segments[-1].end_seconds)
+    duration_seconds = _duration(
+        metadata,
+        segments[-1].end_seconds,
+        fallback_duration,
+    )
     warnings: list[str] = []
     if not has_reference_definitions:
         warnings.append("No @image reference definitions were found.")

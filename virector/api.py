@@ -155,12 +155,17 @@ def build_api(
     ) -> dict[str, str | None]:
         identity = job_identity(user, project_id)
         try:
+            director_plan = compile_director_plan(
+                direction_prompt,
+                fallback_duration=duration_seconds,
+            )
             directives = build_reference_directives(len(reference_images))
             validate_prompt_reference_tags(direction_prompt, len(reference_images))
             width, height = RESOLUTION_PRESETS[aspect_ratio]
             spec = ShotSpec(
                 title=title or "Untitled shot",
                 prompt=direction_prompt.strip(),
+                director_plan=director_plan,
                 video_model=video_model,
                 reference_mode="omni",
                 references=directives,
@@ -168,7 +173,7 @@ def build_api(
                 output_resolution=output_resolution,
                 width=width,
                 height=height,
-                duration_seconds=duration_seconds,
+                duration_seconds=director_plan.duration_seconds,
                 seed=seed,
             )
         except (ValidationError, ValueError) as exc:
@@ -209,7 +214,7 @@ def build_api(
             "job_id": job_id,
             "status": "queued",
             "video_url": None,
-            "message": "Render queued.",
+            "message": "Direction accepted and render queued.",
         }
 
     @router.get("/renders/{job_id}")

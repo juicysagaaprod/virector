@@ -2,6 +2,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 
+from virector.models.director_plan import DirectorPlan
+
 
 class AspectRatio(str, Enum):
     portrait = "9:16"
@@ -52,7 +54,8 @@ class ShotSpec(BaseModel):
     """Portable contract passed to local or cloud generation workers."""
 
     title: str = Field(default="Untitled shot", min_length=1, max_length=120)
-    prompt: str = Field(min_length=3, max_length=4000)
+    prompt: str = Field(min_length=3, max_length=20_000)
+    director_plan: DirectorPlan | None = None
     negative_prompt: str = Field(
         default=(
             "identity drift, face distortion, extra fingers, duplicate person, "

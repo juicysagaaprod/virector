@@ -143,6 +143,16 @@ def test_plain_prompt_compiles_to_one_fallback_segment() -> None:
     assert plan.warnings == ["No @image reference definitions were found."]
 
 
+def test_plain_prompt_uses_requested_fallback_duration() -> None:
+    plan = compile_director_plan(
+        "@image1 walks through the room while the camera tracks.",
+        fallback_duration=7,
+    )
+
+    assert plan.duration_seconds == 7
+    assert plan.segments[0].duration_seconds == 7
+
+
 def test_director_plan_serializes_as_worker_ready_json() -> None:
     plan = compile_director_plan(CLIP_8)
     restored = DirectorPlan.model_validate_json(plan.model_dump_json())
