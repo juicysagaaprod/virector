@@ -24,6 +24,11 @@ The optional LTX runtime uses the official LTX-Video 2B distilled checkpoint
 through Diffusers. If the runtime or CUDA is unavailable, Virector reports the
 reason through `/api/health` and safely falls back to the mock worker.
 
+The dedicated RunPod Serverless image and deployment checklist are documented
+in [`docs/runpod.md`](docs/runpod.md). The image uses signed R2 URLs for media,
+keeps model/cache data under `/runpod-volume`, and publishes manually through
+the **Publish RunPod worker image** GitHub Actions workflow.
+
 ## Cloud staging foundation
 
 Virector keeps generated artifacts behind a storage interface. Local development

@@ -1,0 +1,36 @@
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    VIRECTOR_DATA_DIR=/runpod-volume/virector \
+    VIRECTOR_MODELS_DIR=/runpod-volume/virector/models \
+    VIRECTOR_CACHE_DIR=/runpod-volume/virector/cache \
+    VIRECTOR_OUTPUTS_DIR=/runpod-volume/virector/outputs \
+    VIRECTOR_WORKER_MODE=performance \
+    VIRECTOR_PERFORMANCE_SEGMENT_WORKER=vace \
+    VIRECTOR_VACE_ALLOW_DOWNLOAD=true \
+    HF_HOME=/runpod-volume/virector/cache/huggingface \
+    TORCH_HOME=/runpod-volume/virector/cache/torch \
+    HF_HUB_DISABLE_XET=1 \
+    HF_HUB_DISABLE_SYMLINKS_WARNING=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        git \
+        python3 \
+        python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+RUN mkdir -p virector && touch virector/__init__.py && \
+    python3 -m pip install --upgrade pip && \
+    python3 -m pip install ".[ltx,runpod]" && \
+    rm -rf virector
+
+COPY virector ./virector
+
+CMD ["python3", "-u", "-m", "virector.runpod_handler"]

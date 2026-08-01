@@ -41,6 +41,9 @@ ltx = [
   "torchvision==0.27.0",
   "transformers==4.57.6",
 ]
+runpod = [
+  "runpod==1.11.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["virector*"]
