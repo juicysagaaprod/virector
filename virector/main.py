@@ -10,7 +10,6 @@ from virector.services.jobs import JobService
 from virector.ui.studio import create_studio
 from virector.workers.factory import create_worker
 
-
 settings = get_settings()
 worker = create_worker(settings)
 job_service = JobService(settings=settings, worker=worker)
@@ -19,7 +18,11 @@ job_service = JobService(settings=settings, worker=worker)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings.ensure_directories()
-    yield
+    job_service.healthcheck()
+    try:
+        yield
+    finally:
+        job_service.close()
 
 
 app = FastAPI(

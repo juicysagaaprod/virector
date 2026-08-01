@@ -11,6 +11,7 @@ from virector.models.shot_spec import (
     OutputResolution,
     ShotSpec,
 )
+from virector.services.job_repository import JobRepositoryError
 from virector.services.jobs import JobService
 from virector.services.references import (
     build_reference_directives,
@@ -30,6 +31,7 @@ def build_api(job_service: JobService) -> APIRouter:
             "worker": worker.__class__.__name__,
             "worker_mode": worker.mode,
             "requested_worker_mode": worker.requested_mode,
+            "job_repository": job_service.job_repository.backend,
         }
         if worker.fallback_reason:
             payload["fallback_reason"] = worker.fallback_reason
@@ -86,6 +88,8 @@ def build_api(job_service: JobService) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except ArtifactStorageError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except JobRepositoryError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
         video_url = None
         if result.video:
@@ -107,6 +111,8 @@ def build_api(job_service: JobService) -> APIRouter:
             location = job_service.artifact_store.get_video_location(job_id)
         except ArtifactStorageError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except JobRepositoryError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         if location is None:
             raise HTTPException(status_code=404, detail="Render video not found.")
         if location.path is not None:

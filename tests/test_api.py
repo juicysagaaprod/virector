@@ -117,3 +117,12 @@ def test_render_video_rejects_invalid_job_id(tmp_path: Path) -> None:
     response = client.get("/api/renders/not-a-job/video")
 
     assert response.status_code == 404
+
+
+def test_health_reports_job_repository(tmp_path: Path) -> None:
+    client = make_client(tmp_path, ApiWorker())
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json()["job_repository"] == "local"

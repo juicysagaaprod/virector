@@ -64,3 +64,18 @@ def test_job_service_retains_ordered_omni_references(tmp_path: Path) -> None:
     assert len(manifest["assets"]["reference_images"]) == 2
     assert manifest["assets"]["references"][0]["tag"] == "@image1"
     assert manifest["assets"]["references"][1]["tag"] == "@image2"
+    state = json.loads(
+        (worker.job.output_dir / "job_state.json").read_text(encoding="utf-8")
+    )
+    assert state["status"] == "composed"
+    assert state["progress"] == 100
+    assert [event["status"] for event in state["events"]] == [
+        "queued",
+        "validating",
+        "rendering",
+        "composed",
+    ]
+    assert [asset["image_tag"] for asset in state["assets"][:2]] == [
+        "@image1",
+        "@image2",
+    ]

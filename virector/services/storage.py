@@ -22,6 +22,9 @@ class ArtifactStore(Protocol):
     def get_video_location(self, job_id: str) -> ArtifactLocation | None:
         """Return a local path or short-lived remote URL for a render."""
 
+    def object_key(self, job_id: str, relative_path: str) -> str:
+        """Return the durable key recorded in render metadata."""
+
 
 class LocalArtifactStore:
     def __init__(self, outputs_dir: Path) -> None:
@@ -36,6 +39,9 @@ class LocalArtifactStore:
         if not video_path.is_file():
             return None
         return ArtifactLocation(path=video_path)
+
+    def object_key(self, job_id: str, relative_path: str) -> str:
+        return f"renders/{job_id}/{relative_path}"
 
 
 class S3ArtifactStore:
@@ -56,15 +62,18 @@ class S3ArtifactStore:
 
     def _key(self, job_id: str, relative_path: str) -> str:
         parts = [
-            part
-            for part in (self.key_prefix, "renders", job_id, relative_path)
-            if part
+            part for part in (self.key_prefix, "renders", job_id, relative_path) if part
         ]
         return "/".join(parts)
 
+    def object_key(self, job_id: str, relative_path: str) -> str:
+        return self._key(job_id, relative_path)
+
     def publish_job(self, job_id: str, job_dir: Path) -> None:
         try:
-            for artifact in sorted(path for path in job_dir.rglob("*") if path.is_file()):
+            for artifact in sorted(
+                path for path in job_dir.rglob("*") if path.is_file()
+            ):
                 relative_path = artifact.relative_to(job_dir).as_posix()
                 self.client.upload_file(
                     str(artifact),

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
     environment: Literal["local", "staging", "production"] = "local"
     storage_backend: Literal["local", "s3"] = "local"
+    job_repository_backend: Literal["local", "postgres"] = "local"
     s3_endpoint_url: str | None = None
     s3_region: str = "auto"
     s3_bucket: str | None = None
@@ -20,6 +21,9 @@ class Settings(BaseSettings):
     s3_secret_access_key: SecretStr | None = Field(default=None, repr=False)
     s3_presigned_url_ttl_seconds: int = Field(default=900, ge=60, le=86400)
     database_url: SecretStr | None = Field(default=None, repr=False)
+    database_pool_min_size: int = Field(default=1, ge=1, le=20)
+    database_pool_max_size: int = Field(default=5, ge=1, le=50)
+    database_pool_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
     supabase_url: str | None = None
     models_dir_override: Path | None = Field(
         default=None,
@@ -90,9 +94,7 @@ class Settings(BaseSettings):
     @property
     def allowed_cors_origins(self) -> list[str]:
         return [
-            origin.strip()
-            for origin in self.cors_origins.split(",")
-            if origin.strip()
+            origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
         ]
 
     def ensure_directories(self) -> None:
@@ -131,6 +133,23 @@ class Settings(BaseSettings):
             raise ValueError(
                 "S3-compatible storage is enabled but required settings are "
                 f"missing: {', '.join(missing)}."
+            )
+
+    def validate_job_repository_configuration(self) -> None:
+        if self.job_repository_backend != "postgres":
+            return
+        if (
+            self.database_url is None
+            or not self.database_url.get_secret_value().strip()
+        ):
+            raise ValueError(
+                "Postgres job persistence is enabled but "
+                "VIRECTOR_DATABASE_URL is missing."
+            )
+        if self.database_pool_min_size > self.database_pool_max_size:
+            raise ValueError(
+                "VIRECTOR_DATABASE_POOL_MIN_SIZE cannot exceed "
+                "VIRECTOR_DATABASE_POOL_MAX_SIZE."
             )
 
 

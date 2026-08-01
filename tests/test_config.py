@@ -1,9 +1,10 @@
 from pathlib import Path
 
+import pytest
 from pytest import MonkeyPatch
 
 from virector.config import Settings
-
+from virector.services.job_repository import create_job_repository
 
 STORAGE_ENV_VARS = (
     "VIRECTOR_MODELS_DIR",
@@ -73,3 +74,28 @@ def test_vace_checkpoint_defaults_to_persistent_models_dir(
     assert settings.vace_checkpoint_path == (
         tmp_path / "models" / "Wan2.1-VACE-1.3B-diffusers"
     )
+
+
+def test_postgres_repository_requires_database_url(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path,
+        job_repository_backend="postgres",
+    )
+
+    with pytest.raises(ValueError, match="VIRECTOR_DATABASE_URL"):
+        create_job_repository(settings)
+
+
+def test_database_pool_minimum_cannot_exceed_maximum(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path,
+        job_repository_backend="postgres",
+        database_url="postgresql://example.invalid/virector",
+        database_pool_min_size=6,
+        database_pool_max_size=5,
+    )
+
+    with pytest.raises(ValueError, match="POOL_MIN_SIZE"):
+        create_job_repository(settings)

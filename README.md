@@ -62,6 +62,14 @@ Browser clients cannot mutate render jobs directly. FastAPI will perform those
 writes through its private database connection, while authenticated clients can
 read only their own projects and render history.
 
+FastAPI selects its metadata repository with
+`VIRECTOR_JOB_REPOSITORY_BACKEND`. The default `local` mode writes an atomic
+`job_state.json` beside each render, recording accepted, validating, rendering
+and terminal events. The `postgres` adapter uses a small Psycopg connection pool
+and requires both a verified Supabase Auth owner ID and a project ID; it refuses
+anonymous writes rather than creating fake production users. Supabase Auth will
+provide that identity in the next authentication milestone.
+
 Validate the migration without touching staging:
 
 ```powershell
