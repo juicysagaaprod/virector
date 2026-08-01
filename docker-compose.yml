@@ -4,6 +4,8 @@ services:
       context: ./web
       args:
         VIRECTOR_API_INTERNAL_URL: http://virector:8000
+        NEXT_PUBLIC_SUPABASE_URL: "${NEXT_PUBLIC_SUPABASE_URL:-}"
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}"
     container_name: virector-web
     ports:
       - "3000:3000"

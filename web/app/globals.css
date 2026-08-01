@@ -89,6 +89,26 @@ label {
   letter-spacing: 0.08em;
 }
 
+.user-email {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: none;
+}
+
+.text-button {
+  padding: 0;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.text-button:hover {
+  color: var(--orange);
+}
+
 .health-dot {
   width: 8px;
   height: 8px;
@@ -147,6 +167,101 @@ label {
   grid-template-columns: minmax(0, 1.3fr) minmax(340px, 0.7fr);
   gap: 1.2rem;
   align-items: start;
+}
+
+.auth-panel,
+.project-bar {
+  max-width: 1440px;
+  margin: 0 auto 1.2rem;
+  padding: clamp(1.2rem, 2.5vw, 2.2rem);
+}
+
+.auth-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  gap: 3rem;
+  align-items: center;
+}
+
+.auth-panel h2 {
+  margin: 0 0 0.5rem;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-weight: 400;
+  letter-spacing: -0.04em;
+}
+
+.auth-panel p {
+  color: var(--muted);
+}
+
+.auth-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.auth-form input,
+.project-bar input,
+.project-bar select {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  outline: none;
+}
+
+.auth-form .render-button {
+  margin-top: 0;
+  justify-content: center;
+}
+
+.auth-message {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.project-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(300px, 1fr) auto;
+  gap: 1rem;
+  align-items: end;
+}
+
+.project-bar label {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.project-bar label > span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.new-project {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+}
+
+.new-project button {
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 10px;
+  color: white;
+  background: var(--ink);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.new-project button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .panel {
@@ -488,7 +603,9 @@ label {
 
 @media (max-width: 980px) {
   .hero,
-  .workspace {
+  .workspace,
+  .auth-panel,
+  .project-bar {
     grid-template-columns: 1fr;
   }
 

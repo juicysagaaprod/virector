@@ -67,6 +67,9 @@ class JobRepository(Protocol):
     ) -> None:
         """Update job state and append a lifecycle event."""
 
+    def is_owned_by(self, job_id: str, owner_id: str) -> bool:
+        """Return whether the job belongs to the authenticated owner."""
+
     def close(self) -> None:
         """Release repository resources."""
 
@@ -187,6 +190,13 @@ class LocalJobRepository:
 
     def close(self) -> None:
         return None
+
+    def is_owned_by(self, job_id: str, owner_id: str) -> bool:
+        try:
+            payload = self._read(job_id)
+        except JobRepositoryError:
+            return False
+        return payload.get("owner_id") == owner_id
 
 
 class PostgresJobRepository:
@@ -367,6 +377,19 @@ class PostgresJobRepository:
 
     def close(self) -> None:
         self.pool.close()
+
+    def is_owned_by(self, job_id: str, owner_id: str) -> bool:
+        try:
+            with self.pool.connection() as connection:
+                row = connection.execute(
+                    "select 1 from public.render_jobs where id = %s and owner_id = %s",
+                    (job_id, owner_id),
+                ).fetchone()
+            return row is not None
+        except Exception as exc:
+            raise JobRepositoryError(
+                f"Could not authorize render job {job_id}: {exc}"
+            ) from exc
 
 
 def create_job_repository(

@@ -99,3 +99,10 @@ def test_database_pool_minimum_cannot_exceed_maximum(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="POOL_MIN_SIZE"):
         create_job_repository(settings)
+
+
+def test_required_auth_requires_supabase_url() -> None:
+    settings = Settings(_env_file=None, auth_required=True, supabase_url=None)
+
+    with pytest.raises(ValueError, match="VIRECTOR_SUPABASE_URL"):
+        settings.validate_auth_configuration()

@@ -43,9 +43,11 @@ replace every placeholder. Never commit a populated `.env.staging` file. When
 `VIRECTOR_STORAGE_BACKEND=s3`, startup rejects missing endpoint, bucket or access
 credentials instead of silently writing ephemeral container files.
 
-The Supabase connection settings are reserved in the staging template for the
-next milestone: persistent users, projects and render-job state. Until that job
-repository is connected, `MockWorker` should remain the staging default.
+Supabase Auth is optional in local mode and required by the staging template.
+The browser uses only the public project URL and publishable key. FastAPI
+verifies every bearer token against Supabase signing keys before passing the
+trusted owner and selected project to the job repository. `MockWorker` remains
+the staging default while the production GPU worker is being provisioned.
 
 ### Supabase database schema
 
@@ -67,8 +69,22 @@ FastAPI selects its metadata repository with
 `job_state.json` beside each render, recording accepted, validating, rendering
 and terminal events. The `postgres` adapter uses a small Psycopg connection pool
 and requires both a verified Supabase Auth owner ID and a project ID; it refuses
-anonymous writes rather than creating fake production users. Supabase Auth will
-provide that identity in the next authentication milestone.
+anonymous writes rather than creating fake production users. Authenticated
+video downloads are also checked against the job owner.
+
+To enable authentication locally, set the same public values in the root `.env`
+for both the API and browser, then rebuild the web image:
+
+```text
+VIRECTOR_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+VIRECTOR_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+VIRECTOR_AUTH_REQUIRED=true
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
+
+The publishable key is intended for browser use. Never put a Supabase secret or
+service-role key in a `NEXT_PUBLIC_` variable.
 
 Validate the migration without touching staging:
 

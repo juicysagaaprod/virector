@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     database_pool_max_size: int = Field(default=5, ge=1, le=50)
     database_pool_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
     supabase_url: str | None = None
+    supabase_publishable_key: str | None = Field(default=None, repr=False)
+    supabase_jwt_audience: str = "authenticated"
+    auth_required: bool = False
     models_dir_override: Path | None = Field(
         default=None,
         validation_alias="VIRECTOR_MODELS_DIR",
@@ -150,6 +153,14 @@ class Settings(BaseSettings):
             raise ValueError(
                 "VIRECTOR_DATABASE_POOL_MIN_SIZE cannot exceed "
                 "VIRECTOR_DATABASE_POOL_MAX_SIZE."
+            )
+
+    def validate_auth_configuration(self) -> None:
+        if not self.auth_required:
+            return
+        if not self.supabase_url or not self.supabase_url.strip():
+            raise ValueError(
+                "Authentication is required but VIRECTOR_SUPABASE_URL is missing."
             )
 
 
