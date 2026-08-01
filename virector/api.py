@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import ValidationError
 
 from virector.models.director_plan import DirectorPlan, DirectorPlanRequest
+from virector.models.omni_asset import OmniMediaType
 from virector.models.shot_spec import (
     RESOLUTION_PRESETS,
     AspectRatio,
@@ -34,12 +35,61 @@ from virector.services.director_plan import compile_director_plan
 from virector.services.job_repository import JobIdentity, JobRepositoryError
 from virector.services.jobs import JobService
 from virector.services.references import (
-    build_reference_directives,
+    build_omni_reference_directives,
     validate_prompt_reference_tags,
 )
 from virector.services.storage import ArtifactStorageError
 
 logger = logging.getLogger(__name__)
+
+UPLOAD_RULES = {
+    OmniMediaType.image: (
+        {".jpg", ".jpeg", ".png", ".webp"},
+        25 * 1024 * 1024,
+    ),
+    OmniMediaType.video: (
+        {".mp4", ".mov", ".webm"},
+        100 * 1024 * 1024,
+    ),
+    OmniMediaType.audio: (
+        {".aac", ".flac", ".m4a", ".mp3", ".ogg", ".wav"},
+        25 * 1024 * 1024,
+    ),
+}
+
+
+async def _save_upload(
+    upload: UploadFile,
+    destination: Path,
+    media_type: OmniMediaType,
+) -> None:
+    allowed_extensions, max_bytes = UPLOAD_RULES[media_type]
+    suffix = destination.suffix.lower()
+    if suffix not in allowed_extensions:
+        allowed = ", ".join(sorted(allowed_extensions))
+        raise ValueError(
+            f"Unsupported {media_type.value} file {upload.filename!r}; "
+            f"use one of: {allowed}."
+        )
+    content_type = (upload.content_type or "").lower()
+    if content_type and content_type != "application/octet-stream":
+        expected_prefix = f"{media_type.value}/"
+        if not content_type.startswith(expected_prefix):
+            raise ValueError(
+                f"File {upload.filename!r} is not a valid {media_type.value} upload."
+            )
+    written = 0
+    with destination.open("wb") as target:
+        while chunk := await upload.read(1024 * 1024):
+            written += len(chunk)
+            if written > max_bytes:
+                raise ValueError(
+                    f"{media_type.value.title()} reference {upload.filename!r} "
+                    f"exceeds the {max_bytes // (1024 * 1024)} MB limit."
+                )
+            target.write(chunk)
+    if written == 0:
+        raise ValueError(f"{media_type.value.title()} reference is empty.")
 
 
 def build_api(
@@ -147,6 +197,8 @@ def build_api(
         background_tasks: BackgroundTasks,
         reference_images: list[UploadFile] = File(...),
         direction_prompt: str = Form(...),
+        reference_videos: list[UploadFile] | None = File(None),
+        reference_audio: list[UploadFile] | None = File(None),
         title: str = Form("Untitled shot"),
         video_model: str = Form("ltx-video-2b-distilled"),
         aspect_ratio: AspectRatio = Form(AspectRatio.portrait),
@@ -157,13 +209,19 @@ def build_api(
         user: AuthenticatedUser | None = Depends(authenticate),
     ) -> dict[str, str | None]:
         identity = job_identity(user, project_id)
+        video_uploads = list(reference_videos or [])
+        audio_uploads = list(reference_audio or [])
         try:
             director_plan = compile_director_plan(
                 direction_prompt,
                 fallback_duration=duration_seconds,
             )
-            directives = build_reference_directives(len(reference_images))
-            validate_prompt_reference_tags(direction_prompt, len(reference_images))
+            directives = build_omni_reference_directives(
+                len(reference_images),
+                len(video_uploads),
+                len(audio_uploads),
+            )
+            validate_prompt_reference_tags(direction_prompt, directives)
             width, height = RESOLUTION_PRESETS[aspect_ratio]
             spec = ShotSpec(
                 title=title or "Untitled shot",
@@ -187,14 +245,27 @@ def build_api(
         try:
             queued_uploads.mkdir(parents=True, exist_ok=False)
             reference_paths: list[Path] = []
-            for index, upload in enumerate(reference_images, start=1):
-                suffix = Path(upload.filename or f"image-{index}.png").suffix
+            uploads = (
+                [(OmniMediaType.image, upload) for upload in reference_images]
+                + [(OmniMediaType.video, upload) for upload in video_uploads]
+                + [(OmniMediaType.audio, upload) for upload in audio_uploads]
+            )
+            media_indexes = {media_type: 0 for media_type in OmniMediaType}
+            for media_type, upload in uploads:
+                media_indexes[media_type] += 1
+                index = media_indexes[media_type]
+                default_suffix = {
+                    OmniMediaType.image: ".png",
+                    OmniMediaType.video: ".mp4",
+                    OmniMediaType.audio: ".wav",
+                }[media_type]
+                suffix = Path(upload.filename or "").suffix.lower() or default_suffix
                 queued_path = queued_uploads / (
-                    f"reference-{index:02d}{suffix or '.png'}"
+                    f"{media_type.value}-{index:02d}{suffix}"
                 )
-                queued_path.write_bytes(await upload.read())
+                await _save_upload(upload, queued_path, media_type)
                 reference_paths.append(queued_path)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             shutil.rmtree(queued_uploads, ignore_errors=True)
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

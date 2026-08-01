@@ -21,6 +21,7 @@ class AssetRole(str, Enum):
     camera = "camera"
     effect = "effect"
     voice = "voice"
+    audio = "audio"
     style = "style"
 
 

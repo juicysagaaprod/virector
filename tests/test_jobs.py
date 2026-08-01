@@ -4,6 +4,7 @@ from pathlib import Path
 from PIL import Image
 
 from virector.config import Settings
+from virector.models.omni_asset import OmniMediaType
 from virector.models.shot_spec import ReferenceDirective, ShotSpec
 from virector.services.jobs import JobService
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
@@ -51,8 +52,8 @@ def test_job_service_retains_ordered_omni_references(tmp_path: Path) -> None:
     assert result.start_frame.is_file()
     assert worker.job is not None
     assert [path.name for path in worker.job.reference_images] == [
-        "reference-01.png",
-        "reference-02.jpg",
+        "image-01.png",
+        "image-02.jpg",
     ]
     assert [asset.tag for asset in worker.job.reference_assets] == [
         "@image1",
@@ -79,3 +80,49 @@ def test_job_service_retains_ordered_omni_references(tmp_path: Path) -> None:
         "@image1",
         "@image2",
     ]
+
+
+def test_job_service_persists_video_and_audio_references(tmp_path: Path) -> None:
+    image = tmp_path / "character.png"
+    video = tmp_path / "motion.mp4"
+    audio = tmp_path / "voice.wav"
+    Image.new("RGB", (480, 832), (30, 60, 90)).save(image)
+    video.write_bytes(b"video-reference")
+    audio.write_bytes(b"audio-reference")
+    worker = CapturingWorker()
+    service = JobService(Settings(data_dir=tmp_path / "data"), worker)
+    directives = [
+        ReferenceDirective(index=1, tag="@image1"),
+        ReferenceDirective(
+            index=1,
+            tag="@video1",
+            media_type=OmniMediaType.video,
+        ),
+        ReferenceDirective(
+            index=1,
+            tag="@audio1",
+            media_type=OmniMediaType.audio,
+        ),
+    ]
+
+    service.create_from_references(
+        [image, video, audio],
+        ShotSpec(prompt="Use @image1, @video1 and @audio1.", references=directives),
+        reference_directives=directives,
+    )
+
+    assert worker.job is not None
+    assert [path.name for path in worker.job.reference_images] == ["image-01.png"]
+    assert [path.name for path in worker.job.reference_videos] == ["video-01.mp4"]
+    assert [path.name for path in worker.job.reference_audio] == ["audio-01.wav"]
+    assert [asset.tag for asset in worker.job.reference_assets] == [
+        "@image1",
+        "@video1",
+        "@audio1",
+    ]
+    manifest = json.loads(
+        (worker.job.output_dir / "shot_spec.json").read_text(encoding="utf-8")
+    )
+    assert len(manifest["assets"]["reference_videos"]) == 1
+    assert len(manifest["assets"]["reference_audio"]) == 1
+    assert manifest["assets"]["references"][1]["media_type"] == "video"

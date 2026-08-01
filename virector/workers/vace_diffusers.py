@@ -287,6 +287,8 @@ class DiffusersVaceBackend(VaceBackend):
         pipeline = self._load_pipeline()
         references = []
         for asset in sorted(job.reference_assets, key=lambda item: item.index):
+            if asset.media_type.value != "image":
+                continue
             with Image.open(asset.path) as source:
                 references.append(source.convert("RGB"))
 

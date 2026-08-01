@@ -15,14 +15,13 @@ not make the user learn a special form or expose the compiled plan in Studio.
 | Storyboard plus character references | Supported | Composition order, dialogue and continuity |
 | Camera/effect image references | Supported | Correct controls without false identity roles |
 | Timed dialogue, messages, transitions and title cards | Supported | Worker-ready segment fields |
-| Video action, camera and effect references | Planned | Strict expected-failure contract |
-| Audio voice and rhythm references | Planned | Strict expected-failure contract |
+| Video action, camera and effect references | Transport supported | Motion/camera/effect bindings and worker assets |
+| Audio voice and rhythm references | Transport supported | Voice/audio bindings and worker assets |
 | Video editing, extension and track completion | Planned | Requires video transport and editing workers |
 
-Strict expected failures are intentional executable backlog. They must become
-passing tests when video and audio OmniAsset ingestion is implemented; an
-unexpected pass fails CI so incomplete support cannot be mistaken for a
-finished capability.
+Video and audio ingestion tests now pass through Studio, API, persistence and
+RunPod transport. Model-native execution remains separate: a worker must
+explicitly consume the relevant motion, camera, effect, voice or audio channel.
 
 ## Model boundary
 
@@ -30,4 +29,3 @@ These tests verify prompt interpretation and routing. They do not claim that a
 generation backend can reproduce every requested control. Each passing binding
 still needs a compatible identity, motion, camera, speech, lip-sync, audio or
 editing model in the production worker graph.
-

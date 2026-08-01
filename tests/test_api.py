@@ -150,6 +150,64 @@ def test_render_api_accepts_ordered_omni_references(tmp_path: Path) -> None:
     assert video_response.headers["content-type"] == "video/mp4"
 
 
+def test_render_api_transports_image_video_and_audio_references(
+    tmp_path: Path,
+) -> None:
+    worker = ApiWorker(create_video=True)
+    client = make_client(tmp_path, worker)
+
+    response = client.post(
+        "/api/renders",
+        files=[
+            (
+                "reference_images",
+                ("character.png", image_bytes((120, 40, 60)), "image/png"),
+            ),
+            (
+                "reference_videos",
+                ("movement.mp4", b"video-reference", "video/mp4"),
+            ),
+            (
+                "reference_audio",
+                ("voice.wav", b"audio-reference", "audio/wav"),
+            ),
+        ],
+        data={
+            "direction_prompt": (
+                "@image1 follows the action and camera from @video1 while "
+                "speaking with the voice from @audio1."
+            ),
+            "duration_seconds": "4",
+        },
+    )
+
+    assert response.status_code == 202
+    assert worker.job is not None
+    assert [asset.tag for asset in worker.job.reference_assets] == [
+        "@image1",
+        "@video1",
+        "@audio1",
+    ]
+    assert [path.name for path in worker.job.reference_images] == ["image-01.png"]
+    assert [path.name for path in worker.job.reference_videos] == ["video-01.mp4"]
+    assert [path.name for path in worker.job.reference_audio] == ["audio-01.wav"]
+    plan = worker.job.spec.director_plan
+    assert plan is not None
+    assert [asset.tag for asset in plan.omni_assets] == [
+        "@image1",
+        "@video1",
+        "@audio1",
+    ]
+    assert [role.value for role in plan.omni_assets[1].roles] == [
+        "motion",
+        "camera",
+    ]
+    assert [role.value for role in plan.omni_assets[2].roles] == [
+        "voice",
+        "audio",
+    ]
+
+
 def test_render_api_requires_prompt_to_use_every_reference(tmp_path: Path) -> None:
     client = make_client(tmp_path, ApiWorker())
 

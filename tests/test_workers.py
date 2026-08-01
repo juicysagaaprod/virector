@@ -4,6 +4,7 @@ from pathlib import Path
 from pytest import MonkeyPatch
 
 from virector.config import Settings
+from virector.models.omni_asset import OmniMediaType
 from virector.models.shot_spec import ShotSpec
 from virector.services.director_plan import compile_director_plan
 from virector.workers.base import ReferenceAsset, RenderJob, RenderResult, VideoWorker
@@ -192,6 +193,73 @@ def test_performance_worker_stops_when_a_segment_fails(tmp_path: Path) -> None:
     assert result.video is None
     assert "Shot 2 failed" in result.message
     assert not assembler.segments
+
+
+def test_performance_worker_routes_nonvisual_assets_to_referenced_segment(
+    tmp_path: Path,
+) -> None:
+    prompt = """MULTIMODAL CLIP
+Duration: 4 seconds
+
+Image References
+@image1: Lead character
+@image2: Designed world
+Video References
+@video1: Walking motion and camera movement
+Audio References
+@audio1: Lead voice
+
+0:00-0:02
+@image1 follows @video1 and speaks with @audio1.
+
+0:02-0:04
+Camera reveals @image2.
+"""
+    character = tmp_path / "character.png"
+    world = tmp_path / "world.png"
+    motion = tmp_path / "motion.mp4"
+    voice = tmp_path / "voice.wav"
+    for path in (character, world, motion, voice):
+        path.write_bytes(path.name.encode())
+    plan = compile_director_plan(prompt)
+    job = RenderJob(
+        job_id="multimodal-performance-job",
+        output_dir=tmp_path,
+        start_frame=character,
+        spec=ShotSpec(prompt=prompt, duration_seconds=4, director_plan=plan),
+        reference_images=(character, world),
+        reference_videos=(motion,),
+        reference_audio=(voice,),
+        reference_assets=(
+            ReferenceAsset(index=1, tag="@image1", path=character),
+            ReferenceAsset(index=2, tag="@image2", path=world),
+            ReferenceAsset(
+                index=1,
+                tag="@video1",
+                path=motion,
+                media_type=OmniMediaType.video,
+            ),
+            ReferenceAsset(
+                index=1,
+                tag="@audio1",
+                path=voice,
+                media_type=OmniMediaType.audio,
+            ),
+        ),
+    )
+    segment_worker = CapturingSegmentWorker()
+
+    PerformanceWorker(segment_worker, CapturingAssembler()).render(job)
+
+    first, second = segment_worker.jobs
+    assert [asset.tag for asset in first.reference_assets] == [
+        "@image1",
+        "@video1",
+        "@audio1",
+    ]
+    assert first.reference_videos == (motion,)
+    assert first.reference_audio == (voice,)
+    assert [asset.tag for asset in second.reference_assets] == ["@image2"]
 
 
 def test_segment_prompt_preserves_director_cues(tmp_path: Path) -> None:

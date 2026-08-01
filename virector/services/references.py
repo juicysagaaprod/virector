@@ -1,38 +1,97 @@
 import re
+from collections.abc import Sequence
 
+from virector.models.omni_asset import OmniMediaType
 from virector.models.shot_spec import ReferenceDirective
 
 
-IMAGE_TAG_PATTERN = re.compile(r"(?<![a-z0-9_])@image(\d+)\b", re.IGNORECASE)
+REFERENCE_TAG_PATTERN = re.compile(
+    r"(?<![a-z0-9_])@(image|video|audio)(\d+)\b",
+    re.IGNORECASE,
+)
+REFERENCE_LIMITS = {
+    OmniMediaType.image: 9,
+    OmniMediaType.video: 3,
+    OmniMediaType.audio: 3,
+}
+MAX_OMNI_REFERENCES = 12
 
 
 def build_reference_directives(
     reference_count: int,
+    media_type: OmniMediaType = OmniMediaType.image,
 ) -> list[ReferenceDirective]:
-    """Assign deterministic @image1...@image9 tags in upload order."""
+    """Assign deterministic per-media tags in upload order."""
 
     if reference_count < 1:
-        raise ValueError("Upload at least one reference image.")
-    if reference_count > 9:
-        raise ValueError("Virector currently accepts up to nine reference images.")
-
+        raise ValueError(f"Upload at least one reference {media_type.value}.")
+    limit = REFERENCE_LIMITS[media_type]
+    if reference_count > limit:
+        label = "images" if media_type == OmniMediaType.image else f"{media_type.value}s"
+        raise ValueError(
+            f"Virector currently accepts up to {limit} reference {label}."
+        )
     return [
-        ReferenceDirective(index=index, tag=f"@image{index}")
+        ReferenceDirective(
+            index=index,
+            tag=f"@{media_type.value}{index}",
+            media_type=media_type,
+        )
         for index in range(1, reference_count + 1)
     ]
 
 
-def validate_prompt_reference_tags(prompt: str, reference_count: int) -> None:
-    """Ensure the direction prompt uses each upload and no unknown image tag."""
+def build_omni_reference_directives(
+    image_count: int,
+    video_count: int = 0,
+    audio_count: int = 0,
+) -> list[ReferenceDirective]:
+    """Build one ordered image/video/audio conditioning contract."""
 
-    expected = set(range(1, reference_count + 1))
-    mentioned = {int(value) for value in IMAGE_TAG_PATTERN.findall(prompt)}
+    counts = {
+        OmniMediaType.image: image_count,
+        OmniMediaType.video: video_count,
+        OmniMediaType.audio: audio_count,
+    }
+    if image_count < 1:
+        raise ValueError("Upload at least one omni reference image.")
+    if sum(counts.values()) > MAX_OMNI_REFERENCES:
+        raise ValueError(
+            f"Virector accepts up to {MAX_OMNI_REFERENCES} total omni references."
+        )
+    directives: list[ReferenceDirective] = []
+    for media_type, count in counts.items():
+        if count:
+            directives.extend(build_reference_directives(count, media_type))
+    return directives
+
+
+def validate_prompt_reference_tags(
+    prompt: str,
+    references: int | Sequence[ReferenceDirective],
+) -> None:
+    """Ensure the prompt uses each upload and no unbound omni tag."""
+
+    if isinstance(references, int):
+        directives = build_reference_directives(references)
+    else:
+        directives = list(references)
+    expected = {directive.tag for directive in directives}
+    mentioned = {
+        f"@{media_type.lower()}{int(index)}"
+        for media_type, index in REFERENCE_TAG_PATTERN.findall(prompt)
+    }
     unknown = sorted(mentioned - expected)
     if unknown:
-        tags = ", ".join(f"@image{index}" for index in unknown)
-        raise ValueError(f"Direction prompt references image tags not uploaded: {tags}.")
-
+        raise ValueError(
+            "Direction prompt references assets not uploaded: "
+            + ", ".join(unknown)
+            + "."
+        )
     missing = sorted(expected - mentioned)
     if missing:
-        tags = ", ".join(f"@image{index}" for index in missing)
-        raise ValueError(f"Mention every uploaded image in the direction prompt: {tags}.")
+        raise ValueError(
+            "Mention every uploaded reference in the direction prompt: "
+            + ", ".join(missing)
+            + "."
+        )

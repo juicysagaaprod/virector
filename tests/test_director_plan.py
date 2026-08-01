@@ -258,7 +258,7 @@ def test_plain_prompt_compiles_to_one_fallback_segment() -> None:
     assert len(plan.segments) == 1
     assert plan.segments[0].start_seconds == 0
     assert plan.segments[0].end_seconds == 4
-    assert plan.warnings == ["No @image reference definitions were found."]
+    assert plan.warnings == ["No omni reference definitions were found."]
 
 
 def test_plain_prompt_uses_requested_fallback_duration() -> None:
@@ -286,3 +286,8 @@ def test_director_plan_accepts_legacy_references_field() -> None:
     restored = DirectorPlan.model_validate(payload)
 
     assert restored.omni_assets == plan.omni_assets
+
+
+def test_rejects_video_or_audio_indexes_above_three() -> None:
+    with pytest.raises(ValueError, match="limited to 1-3"):
+        compile_director_plan("@image1 follows @video4.")

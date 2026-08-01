@@ -12,6 +12,20 @@ type ReferenceUpload = {
   previewUrl: string;
 };
 
+type MediaType = "image" | "video" | "audio";
+
+const mediaLimits: Record<MediaType, number> = {
+  image: 9,
+  video: 3,
+  audio: 3,
+};
+
+const mediaFields: Record<MediaType, string> = {
+  image: "reference_images",
+  video: "reference_videos",
+  audio: "reference_audio",
+};
+
 type RenderResponse = {
   job_id: string;
   status: string;
@@ -69,7 +83,11 @@ async function authHeaders(forceRefresh = false) {
 }
 
 export default function DirectorStudio() {
-  const [references, setReferences] = useState<ReferenceUpload[]>([]);
+  const [references, setReferences] = useState<Record<MediaType, ReferenceUpload[]>>({
+    image: [],
+    video: [],
+    audio: [],
+  });
   const [prompt, setPrompt] = useState("");
   const [title, setTitle] = useState("Episode 1 — Shot 1");
   const [duration, setDuration] = useState(4);
@@ -91,9 +109,14 @@ export default function DirectorStudio() {
   const [newProjectName, setNewProjectName] = useState("My Virector Project");
 
   const referenceTags = useMemo(
-    () => references.map((_, index) => `@image${index + 1}`),
+    () =>
+      (Object.entries(references) as [MediaType, ReferenceUpload[]][]).flatMap(
+        ([mediaType, assets]) =>
+          assets.map((_, index) => `@${mediaType}${index + 1}`),
+      ),
     [references],
   );
+  const referenceCount = referenceTags.length;
 
   useEffect(() => {
     fetch("/api/health")
@@ -189,40 +212,56 @@ export default function DirectorStudio() {
     await supabase?.auth.signOut();
   }
 
-  function addReferences(event: ChangeEvent<HTMLInputElement>) {
+  function addReferences(
+    event: ChangeEvent<HTMLInputElement>,
+    mediaType: MediaType,
+  ) {
     const selected = Array.from(event.target.files ?? []);
     setReferences((current) => {
-      const available = Math.max(0, 9 - current.length);
-      return [
+      const total = Object.values(current).reduce(
+        (count, assets) => count + assets.length,
+        0,
+      );
+      const available = Math.max(
+        0,
+        Math.min(mediaLimits[mediaType] - current[mediaType].length, 12 - total),
+      );
+      return {
         ...current,
-        ...selected.slice(0, available).map((file) => ({
-          id: crypto.randomUUID(),
-          file,
-          previewUrl: URL.createObjectURL(file),
-        })),
-      ];
+        [mediaType]: [
+          ...current[mediaType],
+          ...selected.slice(0, available).map((file) => ({
+            id: crypto.randomUUID(),
+            file,
+            previewUrl: URL.createObjectURL(file),
+          })),
+        ],
+      };
     });
     event.target.value = "";
   }
 
-  function removeReference(id: string) {
+  function removeReference(mediaType: MediaType, id: string) {
     setReferences((current) => {
-      const target = current.find((item) => item.id === id);
+      const target = current[mediaType].find((item) => item.id === id);
       if (target) URL.revokeObjectURL(target.previewUrl);
-      return current.filter((item) => item.id !== id);
+      return {
+        ...current,
+        [mediaType]: current[mediaType].filter((item) => item.id !== id),
+      };
     });
   }
 
-  function moveReference(index: number, direction: -1 | 1) {
+  function moveReference(mediaType: MediaType, index: number, direction: -1 | 1) {
     setReferences((current) => {
       const destination = index + direction;
-      if (destination < 0 || destination >= current.length) return current;
-      const reordered = [...current];
+      if (destination < 0 || destination >= current[mediaType].length) return current;
+      const reordered = [...current[mediaType]];
       [reordered[index], reordered[destination]] = [
         reordered[destination],
         reordered[index],
       ];
-      return reordered;
+      return { ...current, [mediaType]: reordered };
     });
   }
 
@@ -273,7 +312,7 @@ export default function DirectorStudio() {
 
   async function submitRender(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!references.length) {
+    if (!references.image.length) {
       setStatus("Upload at least one character or world reference image.");
       return;
     }
@@ -282,11 +321,14 @@ export default function DirectorStudio() {
       return;
     }
     const mentioned = new Set(
-      Array.from(prompt.matchAll(/@image(\d+)\b/gi), (match) => Number(match[1])),
+      Array.from(
+        prompt.matchAll(/@(image|video|audio)(\d+)\b/gi),
+        (match) => `@${match[1].toLowerCase()}${Number(match[2])}`,
+      ),
     );
-    const missing = referenceTags.filter((_, index) => !mentioned.has(index + 1));
+    const missing = referenceTags.filter((tag) => !mentioned.has(tag));
     if (missing.length) {
-      setStatus(`Mention every uploaded image in the prompt: ${missing.join(", ")}.`);
+      setStatus(`Mention every uploaded reference in the prompt: ${missing.join(", ")}.`);
       return;
     }
 
@@ -296,7 +338,10 @@ export default function DirectorStudio() {
     setStatus("Submitting the directed shot to Virector…");
 
     const form = new FormData();
-    references.forEach(({ file }) => form.append("reference_images", file));
+    (Object.entries(references) as [MediaType, ReferenceUpload[]][]).forEach(
+      ([mediaType, assets]) =>
+        assets.forEach(({ file }) => form.append(mediaFields[mediaType], file)),
+    );
     form.append("direction_prompt", prompt);
     form.append("title", title);
     form.append("video_model", "ltx-video-2b-distilled");
@@ -330,6 +375,80 @@ export default function DirectorStudio() {
     } finally {
       setIsRendering(false);
     }
+  }
+
+  function referenceGroup(
+    mediaType: MediaType,
+    label: string,
+    accept: string,
+    formatHint: string,
+  ) {
+    const assets = references[mediaType];
+    const disabled =
+      assets.length >= mediaLimits[mediaType] || referenceCount >= 12;
+    return (
+      <div className="media-reference-group">
+        <div className="media-reference-heading">
+          <strong>{label}</strong>
+          <span>{assets.length}/{mediaLimits[mediaType]}</span>
+        </div>
+        <label className="dropzone compact-dropzone">
+          <input
+            type="file"
+            accept={accept}
+            multiple
+            onChange={(event) => addReferences(event, mediaType)}
+            disabled={disabled}
+          />
+          <span className="drop-icon">+</span>
+          <strong>Add {mediaType} references</strong>
+          <span>{formatHint} · order creates @{mediaType} tags</span>
+        </label>
+        {assets.length > 0 && (
+          <div className="reference-grid">
+            {assets.map((reference, index) => (
+              <article className="reference-card" key={reference.id}>
+                {mediaType === "image" && (
+                  <img src={reference.previewUrl} alt={`@image${index + 1}`} />
+                )}
+                {mediaType === "video" && (
+                  <video src={reference.previewUrl} muted preload="metadata" />
+                )}
+                {mediaType === "audio" && (
+                  <div className="audio-reference-preview" aria-hidden="true">
+                    <span>♫</span>
+                    <small>{reference.file.name}</small>
+                  </div>
+                )}
+                <div className="reference-overlay">
+                  <strong>@{mediaType}{index + 1}</strong>
+                  <span>{fileSize(reference.file.size)}</span>
+                </div>
+                <div className="reference-actions">
+                  <button
+                    type="button"
+                    onClick={() => moveReference(mediaType, index, -1)}
+                    disabled={index === 0}
+                    aria-label={`Move @${mediaType}${index + 1} earlier`}
+                  >←</button>
+                  <button
+                    type="button"
+                    onClick={() => moveReference(mediaType, index, 1)}
+                    disabled={index === assets.length - 1}
+                    aria-label={`Move @${mediaType}${index + 1} later`}
+                  >→</button>
+                  <button
+                    type="button"
+                    onClick={() => removeReference(mediaType, reference.id)}
+                    aria-label={`Remove @${mediaType}${index + 1}`}
+                  >×</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   }
 
   const renderDisabled =
@@ -414,34 +533,23 @@ export default function DirectorStudio() {
         <section className="panel direction-panel">
           <div className="panel-heading">
             <div><span className="step">01</span><h2>Omni references</h2></div>
-            <span className="counter">{references.length}/9</span>
+            <span className="counter">{referenceCount}/12</span>
           </div>
-          <label className="dropzone">
-            <input type="file" accept="image/*" multiple onChange={addReferences} disabled={references.length >= 9} />
-            <span className="drop-icon">＋</span>
-            <strong>Add character and world images</strong>
-            <span>PNG, JPG or WEBP · upload order creates @image tags</span>
-          </label>
-          {references.length > 0 && (
-            <div className="reference-grid">
-              {references.map((reference, index) => (
-                <article className="reference-card" key={reference.id}>
-                  <img src={reference.previewUrl} alt={`@image${index + 1}`} />
-                  <div className="reference-overlay"><strong>@image{index + 1}</strong><span>{fileSize(reference.file.size)}</span></div>
-                  <div className="reference-actions">
-                    <button type="button" onClick={() => moveReference(index, -1)} disabled={index === 0} aria-label={`Move @image${index + 1} earlier`}>←</button>
-                    <button type="button" onClick={() => moveReference(index, 1)} disabled={index === references.length - 1} aria-label={`Move @image${index + 1} later`}>→</button>
-                    <button type="button" onClick={() => removeReference(reference.id)} aria-label={`Remove @image${index + 1}`}>×</button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
+          <p className="omni-intro">
+            Add up to 12 total assets. Images establish visual identity; videos
+            provide motion, camera or effect references; audio provides voice,
+            rhythm and sound references.
+          </p>
+          <div className="media-reference-stack">
+            {referenceGroup("image", "Images", "image/png,image/jpeg,image/webp", "PNG, JPG or WEBP")}
+            {referenceGroup("video", "Videos", "video/mp4,video/quicktime,video/webm", "MP4, MOV or WEBM")}
+            {referenceGroup("audio", "Audio", "audio/*", "MP3, WAV, M4A, AAC, OGG or FLAC")}
+          </div>
           <div className="prompt-block">
             <div className="panel-heading compact"><div><span className="step">02</span><h2>Direction prompt</h2></div></div>
-            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Paste a complete screenplay with image definitions and timed sections, or direct one shot using @image tags." maxLength={20000} required />
+            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Paste a screenplay with timed sections, or direct one shot using @image, @video and @audio tags." maxLength={20000} required />
             <div className="prompt-footer">
-              <span>{referenceTags.length ? `Use ${referenceTags.join(", ")}` : "Upload images to create prompt tags"}</span>
+              <span>{referenceTags.length ? `Use ${referenceTags.join(", ")}` : "Upload assets to create prompt tags"}</span>
               <span>{prompt.length}/20000</span>
             </div>
             <p className="prompt-hint">Timing, references, dialogue, sound and transitions are interpreted automatically when you generate.</p>

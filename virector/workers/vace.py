@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Protocol
 
+from virector.models.omni_asset import OmniMediaType
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
 
 
@@ -43,7 +44,10 @@ class VaceWorker(VideoWorker):
     def render(self, job: RenderJob) -> RenderResult:
         self.ensure_ready()
         assert self._backend is not None
-        if not job.reference_assets:
+        if not any(
+            asset.media_type == OmniMediaType.image
+            for asset in job.reference_assets
+        ):
             return RenderResult(
                 job_id=job.job_id,
                 status="failed",

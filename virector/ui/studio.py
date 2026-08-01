@@ -11,7 +11,7 @@ from virector.models.shot_spec import (
 )
 from virector.services.jobs import JobService
 from virector.services.references import (
-    build_reference_directives,
+    build_omni_reference_directives,
     validate_prompt_reference_tags,
 )
 
@@ -22,6 +22,8 @@ VIDEO_MODEL = "ltx-video-2b-distilled"
 def create_studio(job_service: JobService) -> gr.Blocks:
     def render(
         reference_images: list[str] | None,
+        reference_videos: list[str] | None,
+        reference_audio: list[str] | None,
         title: str,
         direction_prompt: str,
         video_model: str,
@@ -30,15 +32,22 @@ def create_studio(job_service: JobService) -> gr.Blocks:
         duration_seconds: float,
         seed: int,
     ) -> tuple[str | None, str, str]:
-        references = [Path(path) for path in (reference_images or [])]
-        if not references:
+        images = [Path(path) for path in (reference_images or [])]
+        videos = [Path(path) for path in (reference_videos or [])]
+        audio = [Path(path) for path in (reference_audio or [])]
+        references = images + videos + audio
+        if not images:
             return None, "Upload at least one omni reference image.", "{}"
         if not direction_prompt or len(direction_prompt.strip()) < 3:
             return None, "Describe the video in the direction prompt.", "{}"
 
         try:
-            reference_directives = build_reference_directives(len(references))
-            validate_prompt_reference_tags(direction_prompt, len(references))
+            reference_directives = build_omni_reference_directives(
+                len(images),
+                len(videos),
+                len(audio),
+            )
+            validate_prompt_reference_tags(direction_prompt, reference_directives)
         except ValueError as exc:
             return None, str(exc), "{}"
 
@@ -66,7 +75,7 @@ def create_studio(job_service: JobService) -> gr.Blocks:
         )
         tagged_references = ", ".join(item.tag for item in reference_directives)
         reference_note = (
-            f"{len(references)} omni reference image(s) saved as "
+            f"{len(references)} omni reference asset(s) saved as "
             f"{tagged_references}. "
         )
         return (
@@ -105,13 +114,27 @@ def create_studio(job_service: JobService) -> gr.Blocks:
                 gr.Markdown(
                     "Upload order assigns `@image1`, `@image2`, up to `@image9`."
                 )
+                with gr.Row():
+                    reference_videos = gr.File(
+                        label="Motion/camera/effect videos",
+                        file_count="multiple",
+                        file_types=["video"],
+                        type="filepath",
+                    )
+                    reference_audio = gr.File(
+                        label="Voice/music/audio references",
+                        file_count="multiple",
+                        file_types=["audio"],
+                        type="filepath",
+                    )
                 direction_prompt = gr.Textbox(
                     label="Direction prompt",
                     placeholder=(
                         "@image1 is the character and @image2 is the world design. "
                         "Show @image1 walking naturally through @image2 while "
                         "preserving the character's face and clothing. Describe "
-                        "action, camera movement, lighting, mood and timing."
+                        "Use @video and @audio tags for motion, camera, voice, "
+                        "rhythm or sound. Describe action, lighting and timing."
                     ),
                     lines=10,
                 )
@@ -165,6 +188,8 @@ def create_studio(job_service: JobService) -> gr.Blocks:
             fn=render,
             inputs=[
                 reference_images,
+                reference_videos,
+                reference_audio,
                 title,
                 direction_prompt,
                 video_model,

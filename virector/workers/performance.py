@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from virector.models.director_plan import DirectorPlan, DirectorSegment
-from virector.models.omni_asset import BindingModality
+from virector.models.omni_asset import BindingModality, OmniMediaType
 from virector.models.shot_spec import ShotSpec
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
 
@@ -158,15 +158,41 @@ class PerformanceWorker(VideoWorker):
             if binding.modality == BindingModality.visual and binding.visible
             for tag in binding.asset_tags
         }
+        conditioning_tags = {
+            tag
+            for binding in segment.reference_bindings
+            for tag in binding.asset_tags
+        }
         selected_tags = visual_binding_tags or set(segment.reference_tags)
         selected_assets = tuple(
             asset
             for asset in job.reference_assets
-            if not selected_tags or asset.tag in selected_tags
+            if (
+                not selected_tags
+                or asset.tag in selected_tags
+                or (
+                    asset.media_type != OmniMediaType.image
+                    and asset.tag in conditioning_tags
+                )
+            )
         )
         if not selected_assets:
             selected_assets = job.reference_assets
-        selected_images = tuple(asset.path for asset in selected_assets)
+        selected_images = tuple(
+            asset.path
+            for asset in selected_assets
+            if asset.media_type == OmniMediaType.image
+        )
+        selected_videos = tuple(
+            asset.path
+            for asset in selected_assets
+            if asset.media_type == OmniMediaType.video
+        )
+        selected_audio = tuple(
+            asset.path
+            for asset in selected_assets
+            if asset.media_type == OmniMediaType.audio
+        )
         if not selected_images:
             selected_images = job.reference_images
         start_frame = selected_images[0] if selected_images else job.start_frame
@@ -188,6 +214,8 @@ class PerformanceWorker(VideoWorker):
             start_frame=start_frame,
             spec=spec,
             reference_images=selected_images,
+            reference_videos=selected_videos,
+            reference_audio=selected_audio,
             reference_assets=selected_assets,
             progress_callback=job.progress_callback,
         )

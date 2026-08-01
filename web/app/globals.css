@@ -358,6 +358,50 @@ label {
   font-size: 1.4rem;
 }
 
+.omni-intro {
+  margin: -0.4rem 0 1.2rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.media-reference-stack {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.media-reference-group {
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--line);
+}
+
+.media-reference-group:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.media-reference-heading {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+  font-size: 0.78rem;
+}
+
+.media-reference-heading span {
+  color: var(--muted);
+}
+
+.compact-dropzone {
+  min-height: 112px;
+  padding: 1rem;
+}
+
+.compact-dropzone .drop-icon {
+  width: 32px;
+  height: 32px;
+  font-size: 1rem;
+}
+
 .reference-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -373,12 +417,39 @@ label {
   background: #24251f;
 }
 
-.reference-card img {
+.reference-card img,
+.reference-card video {
   width: 100%;
   height: 100%;
   position: absolute;
   inset: 0;
   object-fit: cover;
+}
+
+.audio-reference-preview {
+  height: 100%;
+  min-height: 170px;
+  padding: 2.4rem 1rem 3.4rem;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.5rem;
+  color: white;
+  background: radial-gradient(circle at 50% 35%, #515642, #24251f 70%);
+  text-align: center;
+}
+
+.audio-reference-preview span {
+  color: var(--acid);
+  font-size: 2.2rem;
+}
+
+.audio-reference-preview small {
+  width: 100%;
+  overflow: hidden;
+  color: #d7d8d0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .reference-overlay {

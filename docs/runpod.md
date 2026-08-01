@@ -57,6 +57,7 @@ HF_TOKEN=your_hugging_face_token_if_required
 VIRECTOR_VACE_INFERENCE_STEPS=8
 VIRECTOR_VACE_GUIDANCE_SCALE=5.0
 VIRECTOR_RUNPOD_MAX_REFERENCE_BYTES=26214400
+VIRECTOR_RUNPOD_MAX_VIDEO_BYTES=104857600
 VIRECTOR_RUNPOD_ALLOWED_ASSET_HOSTS=YOUR_ACCOUNT_ID.r2.cloudflarestorage.com
 ```
 
@@ -82,6 +83,7 @@ are not embedded because RunPod request and response bodies have size limits.
       {
         "index": 1,
         "tag": "@image1",
+        "media_type": "image",
         "download_url": "https://signed-r2-download-url",
         "strength": 0.9
       }
@@ -92,9 +94,12 @@ are not embedded because RunPod request and response bodies have size limits.
 }
 ```
 
-The handler validates the DirectorPlan, downloads no more than nine HTTPS image
-references, forwards shot progress to RunPod, uploads the final MP4 directly to
-R2, and returns only job metadata.
+The handler validates the DirectorPlan and downloads up to twelve signed HTTPS
+assets: at most nine images, three videos and three audio files. It forwards
+shot progress to RunPod, uploads the final MP4 directly to R2, and returns only
+job metadata. The current VACE segment backend consumes image references; the
+motion, camera, effect, voice and audio assets remain available for specialized
+workers added to the performance graph.
 
 ## 5. Remaining application connection
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from virector.config import Settings
+from virector.models.omni_asset import OmniMediaType
 from virector.models.shot_spec import ReferenceDirective, ShotSpec
 from virector.services.compositor import (
     compose_start_frame,
@@ -106,8 +107,17 @@ class JobService:
             ".jpeg": "image/jpeg",
             ".png": "image/png",
             ".webp": "image/webp",
+            ".gif": "image/gif",
             ".json": "application/json",
             ".mp4": "video/mp4",
+            ".mov": "video/quicktime",
+            ".webm": "video/webm",
+            ".mp3": "audio/mpeg",
+            ".wav": "audio/wav",
+            ".m4a": "audio/mp4",
+            ".aac": "audio/aac",
+            ".ogg": "audio/ogg",
+            ".flac": "audio/flac",
         }.get(path.suffix.lower())
 
     @staticmethod
@@ -251,7 +261,7 @@ class JobService:
         identity: JobIdentity | None = None,
         job_id: str | None = None,
     ) -> RenderResult:
-        """Create a job from one ordered, @imageN-tagged reference image set."""
+        """Create a job from ordered image, video and audio references."""
 
         if not reference_paths:
             raise ValueError("Upload at least one omni reference image.")
@@ -260,8 +270,12 @@ class JobService:
             directives = build_reference_directives(len(reference_paths))
         if len(directives) != len(reference_paths):
             raise ValueError(
-                "Each uploaded reference image must have one reference directive."
+                "Each uploaded omni asset must have one reference directive."
             )
+        if not any(
+            directive.media_type == OmniMediaType.image for directive in directives
+        ):
+            raise ValueError("Upload at least one image to condition the first frame.")
         spec = ShotSpec.model_validate(
             {
                 **spec.model_dump(),
@@ -283,12 +297,23 @@ class JobService:
                 message="Validating omni references.",
             )
             saved_references: list[Path] = []
-            for index, source_value in enumerate(reference_paths, start=1):
+            for directive, source_value in zip(
+                directives,
+                reference_paths,
+                strict=True,
+            ):
                 source = Path(source_value)
                 if not source.is_file():
-                    raise FileNotFoundError(f"Reference image not found: {source}")
-                suffix = source.suffix.lower() or ".png"
-                destination = references_dir / f"reference-{index:02d}{suffix}"
+                    raise FileNotFoundError(f"Reference asset not found: {source}")
+                default_suffix = {
+                    OmniMediaType.image: ".png",
+                    OmniMediaType.video: ".mp4",
+                    OmniMediaType.audio: ".wav",
+                }[directive.media_type]
+                suffix = source.suffix.lower() or default_suffix
+                destination = references_dir / (
+                    f"{directive.media_type.value}-{directive.index:02d}{suffix}"
+                )
                 shutil.copy2(source, destination)
                 saved_references.append(destination)
 
@@ -297,6 +322,7 @@ class JobService:
                     index=directive.index,
                     tag=directive.tag,
                     path=path,
+                    media_type=directive.media_type,
                     strength=directive.strength,
                 )
                 for directive, path in zip(directives, saved_references, strict=True)
@@ -309,8 +335,23 @@ class JobService:
                 shot_spec=job_dir / "shot_spec.json",
                 references=tuple(saved_references),
             )
+            image_assets = tuple(
+                asset
+                for asset in reference_assets
+                if asset.media_type == OmniMediaType.image
+            )
+            video_assets = tuple(
+                asset
+                for asset in reference_assets
+                if asset.media_type == OmniMediaType.video
+            )
+            audio_assets = tuple(
+                asset
+                for asset in reference_assets
+                if asset.media_type == OmniMediaType.audio
+            )
             prepare_reference_start_frame(
-                reference_path=artifacts.references[0],
+                reference_path=image_assets[0].path,
                 spec=spec,
                 output_path=artifacts.start_frame,
             )
@@ -321,18 +362,25 @@ class JobService:
                 "shot": spec.model_dump(mode="json"),
                 "assets": {
                     "reference_images": [
-                        str(path.resolve()) for path in artifacts.references
+                        str(asset.path.resolve()) for asset in image_assets
+                    ],
+                    "reference_videos": [
+                        str(asset.path.resolve()) for asset in video_assets
+                    ],
+                    "reference_audio": [
+                        str(asset.path.resolve()) for asset in audio_assets
                     ],
                     "references": [
                         {
                             "index": asset.index,
                             "tag": asset.tag,
+                            "media_type": asset.media_type.value,
                             "strength": asset.strength,
                             "path": str(asset.path.resolve()),
                         }
                         for asset in reference_assets
                     ],
-                    "primary_reference": str(artifacts.references[0].resolve()),
+                    "primary_reference": str(image_assets[0].path.resolve()),
                     "start_frame": str(artifacts.start_frame.resolve()),
                 },
             }
@@ -350,7 +398,10 @@ class JobService:
                     ),
                     content_type=self._content_type(asset.path),
                     size_bytes=asset.path.stat().st_size,
-                    metadata={"strength": asset.strength},
+                    metadata={
+                        "strength": asset.strength,
+                        "media_type": asset.media_type.value,
+                    },
                 )
                 for asset in reference_assets
             ]
@@ -388,7 +439,9 @@ class JobService:
                     output_dir=job_dir,
                     start_frame=artifacts.start_frame,
                     spec=spec,
-                    reference_images=artifacts.references,
+                    reference_images=tuple(asset.path for asset in image_assets),
+                    reference_videos=tuple(asset.path for asset in video_assets),
+                    reference_audio=tuple(asset.path for asset in audio_assets),
                     reference_assets=reference_assets,
                     progress_callback=self._progress_reporter(job_id),
                 )

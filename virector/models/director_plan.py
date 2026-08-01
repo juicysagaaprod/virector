@@ -27,6 +27,7 @@ class DirectorSegment(BaseModel):
     duration_seconds: float = Field(gt=0, le=15)
     action: str = Field(min_length=1, max_length=5000)
     reference_tags: list[str] = Field(default_factory=list, max_length=9)
+    asset_tags: list[str] = Field(default_factory=list, max_length=12)
     reference_bindings: list[ReferenceBinding] = Field(
         default_factory=list,
         max_length=24,
@@ -90,6 +91,12 @@ class DirectorPlan(BaseModel):
                 raise ValueError(
                     "Segment references images not defined by the plan: "
                     + ", ".join(sorted(unknown_tags))
+                )
+            unknown_asset_tags = set(segment.asset_tags) - known_tags
+            if unknown_asset_tags:
+                raise ValueError(
+                    "Segment references assets not defined by the plan: "
+                    + ", ".join(sorted(unknown_asset_tags))
                 )
             binding_tags = {
                 tag

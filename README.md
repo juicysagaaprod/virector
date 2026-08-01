@@ -3,8 +3,9 @@
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/juicysagaaprod/virector?quickstart=1)
 
 Virector is a full-stack, director-controlled AI video application. Its
-production web client sends ordered omni-reference images and one natural
-language direction prompt to a model-independent Python render service.
+production web client sends ordered image, video and audio omni references with
+one natural-language direction prompt to a model-independent Python render
+service.
 
 The starter includes:
 
@@ -14,6 +15,7 @@ The starter includes:
 - Pydantic `ShotSpec`
 - Pydantic `DirectorPlan` with screenplay-to-timeline compilation
 - Hidden `OmniAsset` and per-shot `ReferenceBinding` compilation
+- Ordered `@image`, `@video` and `@audio` uploads with persistent worker transport
 - Transparent-PNG character compositor
 - Job manifests and output folders
 - Pluggable workers for local LTX, self-hosted VACE and future cloud GPUs
@@ -292,7 +294,7 @@ The selected low-memory path:
 - loads the T5 text encoder in 4-bit, encodes the prompt, then unloads it;
 - runs the video transformer with sequential CPU offload;
 - chains LTX-compatible segments to generate 1–15 seconds at 24 fps;
-- accepts one ordered set of omni reference images;
+- accepts ordered image, video and audio omni references;
 - offers native preview, 720p and 1080p output; and
 - enables VAE tiling before exporting H.264 MP4.
 
@@ -303,18 +305,20 @@ loading and final video decoding. Longer clips chain additional segments. The
 720p and 1080p choices upscale after native generation to keep local VRAM use
 within the 8GB target.
 
-Studio automatically assigns each uploaded reference a name based on upload
-order. Describe what every image represents and how it behaves directly in the
-single direction prompt:
+Studio automatically assigns each uploaded reference a name based on its media
+type and upload order. Describe what every asset represents and how it controls
+the result directly in the single direction prompt:
 
 ```text
-@image1 is the lead character and @image2 is the world design. Show @image1
-walking naturally through @image2 while preserving the face and clothing.
+@image1 is the lead character and @image2 is the world design. Follow the
+movement and camera from @video1 while @image1 walks through @image2. Use the
+voice and rhythm from @audio1.
 ```
 
-The tags `@image1` through `@image9` are stored in both `ShotSpec.references` and
-the job manifest. Virector validates that every uploaded image is mentioned and
-that the prompt does not refer to an image that was not uploaded.
+The tags `@image1`–`@image9`, `@video1`–`@video3` and `@audio1`–`@audio3` are
+stored in both `ShotSpec.references` and the job manifest, with a maximum of 12
+assets per render. Virector validates that every upload is mentioned and that
+the prompt does not refer to an asset that was not uploaded.
 
 The current local LTX adapter technically requires a single conditioning image,
 so it prepares one internally from `@image1`; this internal artifact is no longer
@@ -382,9 +386,9 @@ E:\Virector\outputs\ltx-smoke\preview.mp4
 
 ## First test
 
-1. Upload one or more images in **Omni reference images**.
-2. Treat them as `@image1`, `@image2`, and so on in upload order.
-3. Describe what each image represents and the complete action in the single
+1. Upload one or more images and optionally add video or audio references.
+2. Use the generated `@image`, `@video` and `@audio` tags in upload order.
+3. Describe what each asset controls and the complete action in the single
    **Direction prompt**.
 4. Select the aspect ratio, resolution and a length from 1–15 seconds.
 5. Select **Generate video**.

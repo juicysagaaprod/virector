@@ -13,13 +13,14 @@ An `OmniAsset` describes an ordered source and the controls it can provide:
 - prompt tag such as `@image1`, `@video1` or `@audio1`;
 - natural-language description;
 - inferred roles such as character identity, wardrobe, environment, prop,
-  readable text, composition, storyboard, motion, camera, effect, voice or
-  style; and
+  readable text, composition, storyboard, motion, camera, effect, voice, audio
+  or style; and
 - an optional identity group that combines multiple angles of one character.
 
-The current Studio and API ingest up to nine images. Video and audio tags are
-represented in the contract so the next upload milestone does not require
-another worker-interface redesign.
+The Studio and API ingest up to nine images, three videos and three audio files,
+with a maximum of twelve assets in one request. Images are currently required
+to establish the first visual frame. Video and audio files are persisted and
+transported to local and RunPod workers with their bindings.
 
 ## ReferenceBinding
 
@@ -41,10 +42,11 @@ that character in the shot.
 
 ## Worker behavior
 
-PerformanceWorker uses visual bindings to select the actual image files for
-each segment. It also embeds the structured binding instructions in the segment
-prompt passed to the selected generation backend. Voice bindings remain in the
-conditioning package for the future speech and lip-sync backend.
+PerformanceWorker uses bindings to select the relevant image, video and audio
+files for each segment. It also embeds the structured binding instructions in
+the segment prompt passed to the selected generation backend. Motion, camera,
+effect, voice and audio bindings remain available to compatible specialized
+backends.
 
 Every compiled plan and binding is serialized inside `ShotSpec`, persisted in
 the job manifest and sent unchanged to cloud workers.

@@ -3,6 +3,7 @@ from enum import Enum
 from pydantic import BaseModel, Field, model_validator
 
 from virector.models.director_plan import DirectorPlan
+from virector.models.omni_asset import OmniMediaType
 
 
 class AspectRatio(str, Enum):
@@ -20,8 +21,20 @@ class OutputResolution(str, Enum):
 
 class ReferenceDirective(BaseModel):
     index: int = Field(ge=1, le=9)
-    tag: str = Field(pattern=r"^@image[1-9]$")
+    tag: str = Field(pattern=r"^@(image[1-9]|video[1-3]|audio[1-3])$")
+    media_type: OmniMediaType = OmniMediaType.image
     strength: float = Field(default=0.9, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_tag(self) -> "ReferenceDirective":
+        limit = 9 if self.media_type == OmniMediaType.image else 3
+        if self.index > limit:
+            raise ValueError(
+                f"{self.media_type.value} references support indexes 1-{limit}"
+            )
+        if self.tag != f"@{self.media_type.value}{self.index}":
+            raise ValueError("Reference tag must match its media type and index")
+        return self
 
 
 class CameraDirection(BaseModel):
@@ -65,7 +78,7 @@ class ShotSpec(BaseModel):
     )
     video_model: str = Field(default="ltx-video-2b-distilled", max_length=120)
     reference_mode: str = Field(default="omni", pattern="^(omni|layered)$")
-    references: list[ReferenceDirective] = Field(default_factory=list, max_length=9)
+    references: list[ReferenceDirective] = Field(default_factory=list, max_length=12)
     aspect_ratio: AspectRatio = AspectRatio.portrait
     output_resolution: OutputResolution = OutputResolution.preview
     width: int = Field(default=480, ge=256, le=4096)
@@ -87,13 +100,33 @@ class ShotSpec(BaseModel):
             raise ValueError("1:1 output requires equal width and height")
         if self.aspect_ratio == AspectRatio.social and self.width >= self.height:
             raise ValueError("4:5 output requires height greater than width")
-        indexes = [reference.index for reference in self.references]
-        if indexes and sorted(indexes) != list(range(1, len(indexes) + 1)):
-            raise ValueError("Reference indexes must be contiguous and start at one")
-        tags = [reference.tag for reference in self.references]
-        expected_tags = [f"@image{index}" for index in range(1, len(tags) + 1)]
-        if tags != expected_tags:
-            raise ValueError("Reference tags must match upload order: @image1, @image2")
+        if len({reference.tag for reference in self.references}) != len(
+            self.references
+        ):
+            raise ValueError("Reference tags must be unique")
+        media_order = {
+            OmniMediaType.image: 0,
+            OmniMediaType.video: 1,
+            OmniMediaType.audio: 2,
+        }
+        expected_order = sorted(
+            self.references,
+            key=lambda reference: (media_order[reference.media_type], reference.index),
+        )
+        if self.references != expected_order:
+            raise ValueError("References must be ordered as images, videos, then audio")
+        for media_type in OmniMediaType:
+            references = [
+                reference
+                for reference in self.references
+                if reference.media_type == media_type
+            ]
+            indexes = [reference.index for reference in references]
+            if indexes and indexes != list(range(1, len(indexes) + 1)):
+                raise ValueError(
+                    f"{media_type.value} reference indexes must be contiguous "
+                    "and start at one"
+                )
         return self
 
 

@@ -1,12 +1,9 @@
 """Compatibility checks derived from reusable multimodal prompt patterns.
 
 The prompts are compact Virector fixtures, not copies of third-party examples.
-Passing tests describe the current compiler contract. Strict xfails are the
-executable backlog for media types that are represented by OmniAsset but are
-not accepted by the upload and DirectorPlan compiler yet.
+Passing tests describe the current compiler and transport contract. Model-native
+conditioning remains the responsibility of each generation backend.
 """
-
-import pytest
 
 from virector.models.omni_asset import (
     AssetRole,
@@ -199,10 +196,6 @@ Title card: TO BE CONTINUED
     assert plan.segments[1].title_card == "TO BE CONTINUED"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Video OmniAsset parsing and upload transport are the next milestone.",
-)
 def test_video_action_camera_and_effect_reference_contract() -> None:
     plan = compile_director_plan(
         """ACTION REFERENCE
@@ -225,12 +218,13 @@ Follow the action and camera movement from @video1 while @image1 fights
         AssetRole.motion,
         AssetRole.camera,
     ]
+    assert [
+        binding.modality
+        for binding in plan.segments[0].reference_bindings
+        if binding.asset_tags == ["@video1"]
+    ] == [BindingModality.motion, BindingModality.camera]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Audio OmniAsset parsing and upload transport are the next milestone.",
-)
 def test_audio_voice_and_rhythm_reference_contract() -> None:
     plan = compile_director_plan(
         """VOICE REFERENCE
@@ -247,5 +241,11 @@ Image References
 """
     )
 
-    assert _asset(plan, "@audio1").roles == [AssetRole.voice]
-
+    assert _asset(plan, "@audio1").roles == [AssetRole.voice, AssetRole.audio]
+    binding = _binding(plan.segments[0], "@audio1", BindingModality.voice)
+    assert binding.visible is False
+    assert _binding(
+        plan.segments[0],
+        "@audio1",
+        BindingModality.audio,
+    ).controls == [AssetRole.audio]

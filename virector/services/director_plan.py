@@ -20,7 +20,7 @@ TIME_RANGE_PATTERN = re.compile(
     r"(\d+):(\d{2}(?:\.\d+)?)\s*$"
 )
 REFERENCE_PATTERN = re.compile(
-    r"(?mi)^\s*(@image([1-9]))\s*:\s*(.+?)\s*$"
+    r"(?mi)^\s*(@(image|video|audio)([1-9]))\s*:\s*(.+?)\s*$"
 )
 DIALOGUE_PATTERN = re.compile(
     r"(?mi)^\s*(?!(?:sound|end sound|message|transition|title card)\s*:)"
@@ -32,6 +32,10 @@ CUE_PATTERN = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 IMAGE_TAG_PATTERN = re.compile(r"(?<![a-z0-9_])@image([1-9])\b", re.IGNORECASE)
+OMNI_TAG_PATTERN = re.compile(
+    r"(?<![a-z0-9_])@(image|video|audio)([1-9])\b",
+    re.IGNORECASE,
+)
 METADATA_LABELS = ("Model", "Duration", "Method", "Purpose", "Voice")
 METADATA_PATTERN = re.compile(
     rf"(?is)\b({'|'.join(METADATA_LABELS)})\s*:\s*(.*?)"
@@ -97,10 +101,51 @@ def _normalise(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
 
-def _asset_roles(description: str) -> list[AssetRole]:
+def _asset_roles(
+    description: str,
+    media_type: OmniMediaType = OmniMediaType.image,
+) -> list[AssetRole]:
     normalised = _normalise(description)
     words = set(normalised.split())
     roles: list[AssetRole] = []
+    if media_type == OmniMediaType.video:
+        if words & {
+            "action",
+            "actions",
+            "choreography",
+            "gesture",
+            "motion",
+            "movement",
+            "performance",
+            "running",
+        }:
+            roles.append(AssetRole.motion)
+        if words & {"camera", "framing", "lens", "perspective"}:
+            roles.append(AssetRole.camera)
+        if words & {"effect", "effects", "particles", "trajectory", "wings"}:
+            roles.append(AssetRole.effect)
+        return roles or [AssetRole.motion]
+    if media_type == OmniMediaType.audio:
+        if words & {
+            "dialogue",
+            "delivery",
+            "speech",
+            "speaker",
+            "vocal",
+            "voice",
+        }:
+            roles.append(AssetRole.voice)
+        if words & {
+            "audio",
+            "beat",
+            "music",
+            "rhythm",
+            "song",
+            "sound",
+            "soundtrack",
+        }:
+            roles.append(AssetRole.audio)
+        return roles or [AssetRole.audio]
     document_or_graphic = bool(
         words & {"document", "folder", "id", "logo", "message", "sign", "text"}
     )
@@ -149,16 +194,38 @@ def _identity_group(description: str, roles: list[AssetRole]) -> str | None:
     return "-".join(words)[:120] or None
 
 
-def _omni_asset(index: int, tag: str, description: str) -> PlanReference:
-    roles = _asset_roles(description)
+def _omni_asset(
+    index: int,
+    tag: str,
+    description: str,
+    media_type: OmniMediaType = OmniMediaType.image,
+) -> PlanReference:
+    roles = _asset_roles(description, media_type)
     return PlanReference(
         index=index,
         tag=tag.lower(),
-        media_type=OmniMediaType.image,
+        media_type=media_type,
         description=description.strip(),
         roles=roles,
         identity_group=_identity_group(description, roles),
     )
+
+
+def _enrich_nonvisual_roles(
+    assets: list[PlanReference],
+    prompt: str,
+) -> None:
+    """Infer video/audio controls from both labels and prompt usage."""
+
+    lines = prompt.splitlines()
+    for asset in assets:
+        if asset.media_type == OmniMediaType.image:
+            continue
+        usage = " ".join(line for line in lines if asset.tag in line.lower())
+        asset.roles = _asset_roles(
+            f"{asset.description} {usage}",
+            asset.media_type,
+        )
 
 
 def _reference_operations(
@@ -208,6 +275,12 @@ def _preservation_constraints(roles: list[AssetRole]) -> list[str]:
         constraints.append("follow camera framing and movement")
     if AssetRole.effect in roles:
         constraints.append("follow the referenced visual effect trajectory")
+    if AssetRole.motion in roles:
+        constraints.append("follow action timing, pose sequence and physical motion")
+    if AssetRole.voice in roles:
+        constraints.append("follow speaker identity, delivery and emotional cadence")
+    if AssetRole.audio in roles:
+        constraints.append("follow rhythm, sound timing and musical structure")
     if AssetRole.style in roles:
         constraints.append("preserve the referenced visual style")
     return constraints or ["preserve the referenced visual features"]
@@ -257,6 +330,46 @@ def _reference_bindings(
             )
         )
 
+    for tag in segment.asset_tags:
+        asset = by_tag.get(tag)
+        if asset is None or asset.media_type == OmniMediaType.image:
+            continue
+        operations = _reference_operations(
+            segment.action,
+            combined=len(segment.asset_tags) > 1,
+            maintain=True,
+        )
+        modality_roles: list[tuple[BindingModality, list[AssetRole]]] = []
+        if asset.media_type == OmniMediaType.video:
+            if AssetRole.motion in asset.roles:
+                modality_roles.append((BindingModality.motion, [AssetRole.motion]))
+            if AssetRole.camera in asset.roles:
+                modality_roles.append((BindingModality.camera, [AssetRole.camera]))
+            if AssetRole.effect in asset.roles:
+                modality_roles.append((BindingModality.effect, [AssetRole.effect]))
+        else:
+            if AssetRole.voice in asset.roles:
+                modality_roles.append((BindingModality.voice, [AssetRole.voice]))
+            if AssetRole.audio in asset.roles:
+                modality_roles.append((BindingModality.audio, [AssetRole.audio]))
+        for modality, roles in modality_roles:
+            bindings.append(
+                ReferenceBinding(
+                    asset_tags=[asset.tag],
+                    modality=modality,
+                    operations=operations,
+                    controls=roles,
+                    target=asset.description,
+                    instruction=(
+                        f"Use {asset.tag} for {asset.description}; "
+                        + "; ".join(_preservation_constraints(roles))
+                        + "."
+                    ),
+                    visible=False,
+                    strength=0.9,
+                )
+            )
+
     voice_tags: set[str] = set()
     for cue in segment.dialogue:
         tag = cue.speaker_reference_tag
@@ -303,6 +416,8 @@ def _reference_for_name(
     }
     best: tuple[int, str] | None = None
     for reference in references:
+        if reference.media_type != OmniMediaType.image:
+            continue
         description = _normalise(reference.description)
         description_words = set(description.split())
         score = len(target_words & description_words)
@@ -339,7 +454,11 @@ def _duration(
 def _title(header: str) -> str:
     for line in header.splitlines():
         candidate = line.strip().lstrip("#").strip()
-        if not candidate or candidate.lower() == "image references":
+        if not candidate or candidate.lower() in {
+            "image references",
+            "video references",
+            "audio references",
+        }:
             continue
         if re.match(r"(?i)^(?:model|duration|method|purpose|voice)\s*:", candidate):
             continue
@@ -389,6 +508,8 @@ def _reference_tags(
         r"stands|sits|runs|moves|turns|speaks|talks"
     )
     for reference in references:
+        if reference.media_type != OmniMediaType.image:
+            continue
         description = _normalise(reference.description)
         words = description.split()
         full_name_visible = (
@@ -409,6 +530,21 @@ def _reference_tags(
         if full_name_visible or action_visible:
             tags.add(reference.tag)
     return sorted(tags, key=lambda tag: int(tag.removeprefix("@image")))
+
+
+def _asset_tags(body: str) -> list[str]:
+    media_order = {"image": 0, "video": 1, "audio": 2}
+    tags = {
+        f"@{media_type.lower()}{int(index)}"
+        for media_type, index in OMNI_TAG_PATTERN.findall(body)
+    }
+    return sorted(
+        tags,
+        key=lambda tag: (
+            media_order[re.match(r"@(image|video|audio)", tag).group(1)],
+            int(re.search(r"\d+$", tag).group()),
+        ),
+    )
 
 
 def _segment(
@@ -455,6 +591,7 @@ def _segment(
         duration_seconds=end_seconds - start_seconds,
         action=narrative,
         reference_tags=_reference_tags(body, narrative, references),
+        asset_tags=_asset_tags(body),
         dialogue=dialogue,
         sound_cues=sound_cues,
         on_screen_text=on_screen_text,
@@ -472,29 +609,71 @@ def compile_director_plan(
     prompt = direction_prompt.replace("\r\n", "\n").strip()
     if not prompt:
         raise ValueError("Direction prompt is empty.")
+    invalid_media_tags = sorted(
+        {
+            f"@{media_type.lower()}{int(index)}"
+            for media_type, index in OMNI_TAG_PATTERN.findall(prompt)
+            if media_type.lower() in {"video", "audio"} and int(index) > 3
+        }
+    )
+    if invalid_media_tags:
+        raise ValueError(
+            "Video and audio reference indexes are limited to 1-3: "
+            + ", ".join(invalid_media_tags)
+            + "."
+        )
 
     time_matches = list(TIME_RANGE_PATTERN.finditer(prompt))
     first_time_offset = time_matches[0].start() if time_matches else len(prompt)
     planning_header = prompt[:first_time_offset]
     references = [
-        _omni_asset(int(index), tag, description)
-        for tag, index, description in REFERENCE_PATTERN.findall(planning_header)
+        _omni_asset(
+            int(index),
+            tag,
+            description,
+            OmniMediaType(media_type.lower()),
+        )
+        for tag, media_type, index, description in REFERENCE_PATTERN.findall(
+            planning_header
+        )
+        if not (
+            media_type.lower() in {"video", "audio"} and int(index) > 3
+        )
     ]
-    references.sort(key=lambda reference: reference.index)
+    media_order = {
+        OmniMediaType.image: 0,
+        OmniMediaType.video: 1,
+        OmniMediaType.audio: 2,
+    }
+    references.sort(key=lambda reference: (media_order[reference.media_type], reference.index))
     has_reference_definitions = bool(references)
-    defined_indexes = {reference.index for reference in references}
-    for value in sorted({int(value) for value in IMAGE_TAG_PATTERN.findall(prompt)}):
-        if value not in defined_indexes:
+    defined_tags = {reference.tag for reference in references}
+    mentioned_tags = {
+        (media_type.lower(), int(index))
+        for media_type, index in OMNI_TAG_PATTERN.findall(prompt)
+        if not (media_type.lower() in {"video", "audio"} and int(index) > 3)
+    }
+    for media_name, value in sorted(
+        mentioned_tags,
+        key=lambda item: (media_order[OmniMediaType(item[0])], item[1]),
+    ):
+        tag = f"@{media_name}{value}"
+        if tag not in defined_tags:
             references.append(
                 _omni_asset(
                     value,
-                    f"@image{value}",
-                    f"Unlabelled image {value}",
+                    tag,
+                    f"Unlabelled {media_name} {value}",
+                    OmniMediaType(media_name),
                 )
             )
-    references.sort(key=lambda reference: reference.index)
+    references.sort(key=lambda reference: (media_order[reference.media_type], reference.index))
+    _enrich_nonvisual_roles(references, prompt)
 
-    reference_header = re.search(r"(?mi)^\s*Image References\s*$", planning_header)
+    reference_header = re.search(
+        r"(?mi)^\s*(?:Image|Video|Audio) References\s*$",
+        planning_header,
+    )
     metadata_header = (
         planning_header[: reference_header.start()]
         if reference_header
@@ -528,6 +707,13 @@ def compile_director_plan(
                     set(segment.reference_tags) | set(segments[index - 1].reference_tags),
                     key=lambda tag: int(tag.removeprefix("@image")),
                 )
+                segment.asset_tags = sorted(
+                    set(segment.asset_tags) | set(segments[index - 1].asset_tags),
+                    key=lambda tag: (
+                        media_order[OmniMediaType(re.match(r"@(image|video|audio)", tag).group(1))],
+                        int(re.search(r"\d+$", tag).group()),
+                    ),
+                )
     else:
         fallback_duration = _duration(metadata, 0, fallback_duration)
         segments.append(
@@ -544,7 +730,7 @@ def compile_director_plan(
     )
     warnings: list[str] = []
     if not has_reference_definitions:
-        warnings.append("No @image reference definitions were found.")
+        warnings.append("No omni reference definitions were found.")
     for segment in segments:
         if not segment.reference_tags:
             warnings.append(

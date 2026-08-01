@@ -8,6 +8,7 @@ from virector.models.shot_spec import (
     ReferenceDirective,
     ShotSpec,
 )
+from virector.models.omni_asset import OmniMediaType
 
 
 def test_default_portrait_shot_is_valid() -> None:
@@ -68,7 +69,7 @@ def test_shot_accepts_contiguous_unique_reference_directives() -> None:
 
 
 def test_shot_rejects_reference_tags_outside_upload_order() -> None:
-    with pytest.raises(ValidationError, match="must match upload order"):
+    with pytest.raises(ValidationError, match="must match its media type and index"):
         ShotSpec(
             prompt="The lead crosses the designed world.",
             references=[
@@ -93,5 +94,45 @@ def test_shot_rejects_noncontiguous_reference_indexes() -> None:
                     index=2,
                     tag="@image2",
                 )
+            ],
+        )
+
+
+def test_shot_accepts_independently_indexed_multimodal_references() -> None:
+    shot = ShotSpec(
+        prompt="Use all uploaded assets.",
+        references=[
+            ReferenceDirective(index=1, tag="@image1"),
+            ReferenceDirective(
+                index=1,
+                tag="@video1",
+                media_type=OmniMediaType.video,
+            ),
+            ReferenceDirective(
+                index=1,
+                tag="@audio1",
+                media_type=OmniMediaType.audio,
+            ),
+        ],
+    )
+
+    assert [reference.tag for reference in shot.references] == [
+        "@image1",
+        "@video1",
+        "@audio1",
+    ]
+
+
+def test_shot_rejects_multimodal_references_out_of_media_order() -> None:
+    with pytest.raises(ValidationError, match="images, videos, then audio"):
+        ShotSpec(
+            prompt="Use all uploaded assets.",
+            references=[
+                ReferenceDirective(
+                    index=1,
+                    tag="@video1",
+                    media_type=OmniMediaType.video,
+                ),
+                ReferenceDirective(index=1, tag="@image1"),
             ],
         )

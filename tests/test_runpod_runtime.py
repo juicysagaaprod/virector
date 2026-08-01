@@ -5,6 +5,7 @@ from PIL import Image
 from pydantic import ValidationError
 
 from virector.models.shot_spec import ShotSpec
+from virector.models.omni_asset import OmniMediaType
 from virector.runpod_runtime import (
     RemoteFileClient,
     RunpodPayloadError,
@@ -36,9 +37,17 @@ class FakeRemoteFiles:
         self.upload_url: str | None = None
         self.uploaded = b""
 
-    def download_reference(self, url: str, destination: Path) -> None:
+    def download_reference(
+        self,
+        url: str,
+        destination: Path,
+        media_type: OmniMediaType = OmniMediaType.image,
+    ) -> None:
         self.downloads.append(url)
-        Image.new("RGB", (32, 32), (80, 40, 120)).save(destination)
+        if media_type == OmniMediaType.image:
+            Image.new("RGB", (32, 32), (80, 40, 120)).save(destination)
+        else:
+            destination.write_bytes(b"reference-media")
 
     def upload_video(self, url: str, video: Path) -> None:
         self.upload_url = url
@@ -133,6 +142,47 @@ def test_runpod_runtime_downloads_renders_and_uploads(tmp_path: Path) -> None:
         "@image2",
     ]
     assert "signature=put" not in str(result)
+
+
+def test_runpod_runtime_transports_multimodal_references(tmp_path: Path) -> None:
+    request = payload()
+    request["references"].extend(
+        [
+            {
+                "index": 1,
+                "tag": "@video1",
+                "media_type": "video",
+                "download_url": "https://objects.example/action.mp4?signature=three",
+            },
+            {
+                "index": 1,
+                "tag": "@audio1",
+                "media_type": "audio",
+                "download_url": "https://objects.example/voice.wav?signature=four",
+            },
+        ]
+    )
+    request["shot_spec"]["references"] = [
+        {"index": 1, "tag": "@image1", "media_type": "image"},
+        {"index": 2, "tag": "@image2", "media_type": "image"},
+        {"index": 1, "tag": "@video1", "media_type": "video"},
+        {"index": 1, "tag": "@audio1", "media_type": "audio"},
+    ]
+    files = FakeRemoteFiles()
+    worker = FakeCloudWorker()
+    runtime = RunpodPerformanceRuntime(worker, files, temp_root=tmp_path)
+
+    runtime.handle({"input": request})
+
+    assert worker.job is not None
+    assert [path.name for path in worker.job.reference_videos] == ["video-01.mp4"]
+    assert [path.name for path in worker.job.reference_audio] == ["audio-01.wav"]
+    assert [asset.tag for asset in worker.job.reference_assets] == [
+        "@image1",
+        "@image2",
+        "@video1",
+        "@audio1",
+    ]
 
 
 def test_runpod_payload_requires_internal_director_plan() -> None:

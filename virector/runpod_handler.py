@@ -28,6 +28,12 @@ def create_runtime() -> RunpodPerformanceRuntime:
                     str(25 * 1024 * 1024),
                 )
             ),
+            max_video_bytes=int(
+                os.environ.get(
+                    "VIRECTOR_RUNPOD_MAX_VIDEO_BYTES",
+                    str(100 * 1024 * 1024),
+                )
+            ),
             allowed_hosts={
                 host.strip()
                 for host in os.environ.get(

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from virector.models.omni_asset import OmniMediaType
 from virector.models.shot_spec import ShotSpec
 
 
@@ -11,6 +12,7 @@ class ReferenceAsset:
     index: int
     tag: str
     path: Path
+    media_type: OmniMediaType = OmniMediaType.image
     strength: float = 0.9
 
 
@@ -21,6 +23,8 @@ class RenderJob:
     start_frame: Path
     spec: ShotSpec
     reference_images: tuple[Path, ...] = ()
+    reference_videos: tuple[Path, ...] = ()
+    reference_audio: tuple[Path, ...] = ()
     reference_assets: tuple[ReferenceAsset, ...] = ()
     progress_callback: Callable[[int, str], None] | None = None
 
