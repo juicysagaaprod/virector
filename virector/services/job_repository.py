@@ -42,6 +42,16 @@ class JobAssetRecord:
     metadata: dict[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class JobStatusRecord:
+    job_id: str
+    status: str
+    progress: int
+    message: str
+    error_message: str | None = None
+    output_object_key: str | None = None
+
+
 class JobRepository(Protocol):
     backend: str
     requires_identity: bool
@@ -69,6 +79,13 @@ class JobRepository(Protocol):
 
     def is_owned_by(self, job_id: str, owner_id: str) -> bool:
         """Return whether the job belongs to the authenticated owner."""
+
+    def get_status(
+        self,
+        job_id: str,
+        owner_id: str | None = None,
+    ) -> JobStatusRecord | None:
+        """Return owner-scoped render status, if the job exists."""
 
     def close(self) -> None:
         """Release repository resources."""
@@ -197,6 +214,28 @@ class LocalJobRepository:
         except JobRepositoryError:
             return False
         return payload.get("owner_id") == owner_id
+
+    def get_status(
+        self,
+        job_id: str,
+        owner_id: str | None = None,
+    ) -> JobStatusRecord | None:
+        try:
+            payload = self._read(job_id)
+        except JobRepositoryError:
+            return None
+        if owner_id is not None and payload.get("owner_id") != owner_id:
+            return None
+        events = payload.get("events") or []
+        message = events[-1].get("message", "") if events else ""
+        return JobStatusRecord(
+            job_id=job_id,
+            status=payload["status"],
+            progress=int(payload["progress"]),
+            message=message,
+            error_message=payload.get("error_message"),
+            output_object_key=payload.get("output_object_key"),
+        )
 
 
 class PostgresJobRepository:
@@ -389,6 +428,48 @@ class PostgresJobRepository:
         except Exception as exc:
             raise JobRepositoryError(
                 f"Could not authorize render job {job_id}: {exc}"
+            ) from exc
+
+    def get_status(
+        self,
+        job_id: str,
+        owner_id: str | None = None,
+    ) -> JobStatusRecord | None:
+        if owner_id is None:
+            return None
+        try:
+            with self.pool.connection() as connection:
+                row = connection.execute(
+                    """
+                    select j.status,
+                           j.progress,
+                           j.error_message,
+                           j.output_object_key,
+                           coalesce((
+                               select e.message
+                               from public.render_events e
+                               where e.render_job_id = j.id
+                               order by e.created_at desc, e.id desc
+                               limit 1
+                           ), '') as message
+                    from public.render_jobs j
+                    where j.id = %s and j.owner_id = %s
+                    """,
+                    (job_id, owner_id),
+                ).fetchone()
+            if row is None:
+                return None
+            return JobStatusRecord(
+                job_id=job_id,
+                status=row[0],
+                progress=int(row[1]),
+                error_message=row[2],
+                output_object_key=row[3],
+                message=row[4],
+            )
+        except Exception as exc:
+            raise JobRepositoryError(
+                f"Could not read render job {job_id}: {exc}"
             ) from exc
 
 

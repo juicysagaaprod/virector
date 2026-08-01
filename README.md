@@ -72,6 +72,12 @@ and requires both a verified Supabase Auth owner ID and a project ID; it refuses
 anonymous writes rather than creating fake production users. Authenticated
 video downloads are also checked against the job owner.
 
+Render submission returns `202 Accepted` immediately and runs inference outside
+the HTTP request. The web client polls the owner-scoped
+`GET /api/renders/{job_id}` endpoint for progress and retrieves the protected
+video only after the job reaches `completed`. This keeps FastAPI responsive
+while local or cloud GPU work is running.
+
 To enable authentication locally, set the same public values in the root `.env`
 for both the API and browser, then rebuild the web image:
 

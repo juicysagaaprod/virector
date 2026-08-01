@@ -19,6 +19,15 @@ type RenderResponse = {
   message: string;
 };
 
+type RenderStatusResponse = {
+  job_id: string;
+  status: string;
+  progress: number;
+  message: string;
+  error: string | null;
+  video_url: string | null;
+};
+
 type Project = {
   id: string;
   name: string;
@@ -26,6 +35,16 @@ type Project = {
 
 function fileSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function responsePayload(response: Response) {
+  const body = await response.text();
+  if (!body) return {};
+  try {
+    return JSON.parse(body) as Record<string, unknown>;
+  } catch {
+    return { detail: body };
+  }
 }
 
 export default function DirectorStudio() {
@@ -186,6 +205,49 @@ export default function DirectorStudio() {
     });
   }
 
+  async function waitForRender(jobId: string, accessToken?: string) {
+    const headers = accessToken
+      ? { Authorization: `Bearer ${accessToken}` }
+      : undefined;
+    for (let attempt = 0; attempt < 600; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      const response = await fetch(`/api/renders/${jobId}`, { headers });
+      const payload = await responsePayload(response);
+      if (response.status === 404 && attempt < 5) continue;
+      if (!response.ok) {
+        throw new Error(
+          typeof payload.detail === "string"
+            ? payload.detail
+            : "Render status could not be loaded.",
+        );
+      }
+      const render = payload as unknown as RenderStatusResponse;
+      setStatus(
+        `${render.message || render.status} ${render.progress}% · Job: ${jobId}`,
+      );
+      if (render.status === "failed" || render.status === "cancelled") {
+        throw new Error(render.error || render.message || "Render failed.");
+      }
+      if (render.status === "composed") {
+        throw new Error(
+          render.message || "The active worker completed without a video output.",
+        );
+      }
+      if (render.status === "completed") {
+        if (!render.video_url) {
+          throw new Error("Render completed without a video output.");
+        }
+        const videoResponse = await fetch(render.video_url, { headers });
+        if (!videoResponse.ok) {
+          throw new Error("The rendered video could not be loaded.");
+        }
+        setVideoUrl(URL.createObjectURL(await videoResponse.blob()));
+        return;
+      }
+    }
+    throw new Error("Render monitoring timed out after 20 minutes.");
+  }
+
   async function submitRender(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!references.length) {
@@ -231,22 +293,18 @@ export default function DirectorStudio() {
         headers,
         body: form,
       });
-      const payload = await response.json();
+      const payload = await responsePayload(response);
       if (!response.ok) {
-        throw new Error(payload.detail ?? "The render request was rejected.");
+        throw new Error(
+          typeof payload.detail === "string"
+            ? payload.detail
+            : "The render request was rejected.",
+        );
       }
 
-      const render = payload as RenderResponse;
+      const render = payload as unknown as RenderResponse;
       setStatus(`${render.message || render.status} Job: ${render.job_id}`);
-      if (render.video_url) {
-        if (accessToken) {
-          const videoResponse = await fetch(render.video_url, { headers });
-          if (!videoResponse.ok) throw new Error("The rendered video could not be loaded.");
-          setVideoUrl(URL.createObjectURL(await videoResponse.blob()));
-        } else {
-          setVideoUrl(render.video_url);
-        }
-      }
+      await waitForRender(render.job_id, accessToken);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Render request failed.");
     } finally {

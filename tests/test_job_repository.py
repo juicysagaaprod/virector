@@ -67,6 +67,12 @@ def test_local_repository_persists_lifecycle_and_assets(tmp_path: Path) -> None:
         "progress",
         "completed",
     ]
+    status = repository.get_status(record.job_id)
+    assert status is not None
+    assert status.status == "completed"
+    assert status.progress == 100
+    assert status.message == "Preview complete."
+    assert repository.get_status(record.job_id, owner_id="another-user") is None
 
 
 class UnusedPool:

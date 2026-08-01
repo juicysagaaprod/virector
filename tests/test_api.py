@@ -102,10 +102,10 @@ def test_render_api_accepts_ordered_omni_references(tmp_path: Path) -> None:
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     payload = response.json()
-    assert payload["status"] == "complete"
-    assert payload["video_url"].endswith("/video")
+    assert payload["status"] == "queued"
+    assert payload["video_url"] is None
     assert "start_frame" not in payload
     assert worker.job is not None
     assert [asset.tag for asset in worker.job.reference_assets] == [
@@ -116,7 +116,14 @@ def test_render_api_accepts_ordered_omni_references(tmp_path: Path) -> None:
     assert worker.job.spec.aspect_ratio == "16:9"
     assert worker.job.spec.output_resolution == "720p"
 
-    video_response = client.get(payload["video_url"])
+    status_response = client.get(f"/api/renders/{payload['job_id']}")
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["status"] == "completed"
+    assert status_payload["progress"] == 100
+    assert status_payload["video_url"].endswith("/video")
+
+    video_response = client.get(status_payload["video_url"])
     assert video_response.status_code == 200
     assert video_response.content == b"test-video"
     assert video_response.headers["content-type"] == "video/mp4"
@@ -188,8 +195,14 @@ def test_authenticated_render_is_scoped_to_owner_and_project(tmp_path: Path) -> 
         },
     )
 
-    assert response.status_code == 200
-    video_url = response.json()["video_url"]
+    assert response.status_code == 202
+    job_id = response.json()["job_id"]
+    status_response = client.get(
+        f"/api/renders/{job_id}",
+        headers={"Authorization": "Bearer owner-token"},
+    )
+    assert status_response.status_code == 200
+    video_url = status_response.json()["video_url"]
     owner_response = client.get(
         video_url,
         headers={"Authorization": "Bearer owner-token"},
@@ -201,7 +214,6 @@ def test_authenticated_render_is_scoped_to_owner_and_project(tmp_path: Path) -> 
     assert owner_response.status_code == 200
     assert other_response.status_code == 404
 
-    job_id = response.json()["job_id"]
     state = (
         tmp_path / "data" / "outputs" / job_id / "job_state.json"
     ).read_text(encoding="utf-8")

@@ -236,6 +236,7 @@ class JobService:
         spec: ShotSpec,
         reference_directives: list[ReferenceDirective] | None = None,
         identity: JobIdentity | None = None,
+        job_id: str | None = None,
     ) -> RenderResult:
         """Create a job from one ordered, @imageN-tagged reference image set."""
 
@@ -255,7 +256,7 @@ class JobService:
             }
         )
 
-        job_id = uuid4().hex
+        job_id = job_id or uuid4().hex
         job_dir = self.settings.outputs_dir / job_id
         references_dir = job_dir / "references"
         references_dir.mkdir(parents=True, exist_ok=False)
