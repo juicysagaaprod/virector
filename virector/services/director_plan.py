@@ -6,6 +6,13 @@ from virector.models.director_plan import (
     DirectorSegment,
     PlanReference,
 )
+from virector.models.omni_asset import (
+    AssetRole,
+    BindingModality,
+    OmniMediaType,
+    ReferenceBinding,
+    ReferenceOperation,
+)
 
 
 TIME_RANGE_PATTERN = re.compile(
@@ -31,6 +38,56 @@ METADATA_PATTERN = re.compile(
     rf"(?=\s+\b(?:{'|'.join(METADATA_LABELS)})\s*:|$)"
 )
 
+ENVIRONMENT_WORDS = {
+    "background",
+    "building",
+    "exterior",
+    "house",
+    "interior",
+    "landscape",
+    "location",
+    "office",
+    "restaurant",
+    "room",
+    "scene",
+    "street",
+    "world",
+}
+PROP_WORDS = {
+    "account",
+    "car",
+    "document",
+    "folder",
+    "id",
+    "logo",
+    "phone",
+    "smartphone",
+    "vehicle",
+}
+TEXT_WORDS = {
+    "document",
+    "folder",
+    "id",
+    "logo",
+    "message",
+    "phone",
+    "sign",
+    "smartphone",
+    "text",
+}
+WARDROBE_WORDS = {"clothing", "costume", "dress", "outfit", "uniform", "wardrobe"}
+PERSON_WORDS = {
+    "boy",
+    "character",
+    "dad",
+    "father",
+    "girl",
+    "man",
+    "mother",
+    "person",
+    "woman",
+}
+
 
 def _timestamp(minutes: str, seconds: str) -> float:
     return int(minutes) * 60 + float(seconds)
@@ -38,6 +95,189 @@ def _timestamp(minutes: str, seconds: str) -> float:
 
 def _normalise(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def _asset_roles(description: str) -> list[AssetRole]:
+    normalised = _normalise(description)
+    words = set(normalised.split())
+    roles: list[AssetRole] = []
+    if normalised.startswith("unlabelled image"):
+        return [AssetRole.style]
+    if words & {"storyboard", "panel", "panels"}:
+        roles.extend([AssetRole.storyboard, AssetRole.composition])
+    if words & ENVIRONMENT_WORDS:
+        roles.extend([AssetRole.environment, AssetRole.composition])
+    if words & PROP_WORDS:
+        roles.append(AssetRole.prop)
+    if words & TEXT_WORDS:
+        roles.append(AssetRole.readable_text)
+    if words & WARDROBE_WORDS:
+        roles.append(AssetRole.wardrobe)
+    if words & {"camera", "framing", "lens"}:
+        roles.append(AssetRole.camera)
+    if words & {"effect", "effects", "particles", "wings"}:
+        roles.append(AssetRole.effect)
+    if words & {"style", "aesthetic", "grade", "lighting"}:
+        roles.append(AssetRole.style)
+    if words & PERSON_WORDS or not roles:
+        roles.extend([AssetRole.character_identity, AssetRole.wardrobe])
+    return list(dict.fromkeys(roles))
+
+
+def _identity_group(description: str, roles: list[AssetRole]) -> str | None:
+    if AssetRole.character_identity not in roles:
+        return None
+    normalised = _normalise(description)
+    removable = {
+        "appearance",
+        "back",
+        "front",
+        "image",
+        "left",
+        "profile",
+        "reference",
+        "right",
+        "side",
+        "three",
+        "view",
+        "quarter",
+    }
+    words = [word for word in normalised.split() if word not in removable]
+    return "-".join(words)[:120] or None
+
+
+def _omni_asset(index: int, tag: str, description: str) -> PlanReference:
+    roles = _asset_roles(description)
+    return PlanReference(
+        index=index,
+        tag=tag.lower(),
+        media_type=OmniMediaType.image,
+        description=description.strip(),
+        roles=roles,
+        identity_group=_identity_group(description, roles),
+    )
+
+
+def _reference_operations(
+    text: str,
+    *,
+    combined: bool,
+    maintain: bool,
+) -> list[ReferenceOperation]:
+    normalised = _normalise(text)
+    operations: list[ReferenceOperation] = []
+    patterns = (
+        (ReferenceOperation.extract, r"\bextract\b"),
+        (ReferenceOperation.combine, r"\bcombine\b"),
+        (ReferenceOperation.follow, r"\b(?:follow|following)\b"),
+        (ReferenceOperation.replace, r"\breplace\b"),
+        (ReferenceOperation.maintain, r"\b(?:maintain|preserve|keep|keeping)\b"),
+    )
+    for operation, pattern in patterns:
+        if re.search(pattern, normalised):
+            operations.append(operation)
+    if not operations or ReferenceOperation.reference not in operations:
+        operations.insert(0, ReferenceOperation.reference)
+    if combined and ReferenceOperation.combine not in operations:
+        operations.append(ReferenceOperation.combine)
+    if maintain and ReferenceOperation.maintain not in operations:
+        operations.append(ReferenceOperation.maintain)
+    return operations
+
+
+def _preservation_constraints(roles: list[AssetRole]) -> list[str]:
+    constraints: list[str] = []
+    if AssetRole.character_identity in roles:
+        constraints.append("preserve face, identity and body proportions")
+    if AssetRole.wardrobe in roles:
+        constraints.append("preserve clothing, colours and accessories")
+    if AssetRole.environment in roles:
+        constraints.append("preserve location design, lighting and spatial layout")
+    if AssetRole.prop in roles:
+        constraints.append("preserve prop shape, material and distinguishing details")
+    if AssetRole.readable_text in roles:
+        constraints.append("preserve readable text and graphic layout")
+    if AssetRole.composition in roles:
+        constraints.append("follow composition, framing and spatial relationships")
+    if AssetRole.storyboard in roles:
+        constraints.append("follow storyboard panel order")
+    if AssetRole.camera in roles:
+        constraints.append("follow camera framing and movement")
+    if AssetRole.effect in roles:
+        constraints.append("follow the referenced visual effect trajectory")
+    if AssetRole.style in roles:
+        constraints.append("preserve the referenced visual style")
+    return constraints or ["preserve the referenced visual features"]
+
+
+def _reference_bindings(
+    segment: DirectorSegment,
+    assets: list[PlanReference],
+) -> list[ReferenceBinding]:
+    by_tag = {asset.tag: asset for asset in assets}
+    visible_assets = [by_tag[tag] for tag in segment.reference_tags if tag in by_tag]
+    grouped: dict[str, list[PlanReference]] = {}
+    for asset in visible_assets:
+        key = asset.identity_group or asset.tag
+        grouped.setdefault(key, []).append(asset)
+
+    bindings: list[ReferenceBinding] = []
+    combined = len(visible_assets) > 1
+    for grouped_assets in grouped.values():
+        roles = list(
+            dict.fromkeys(
+                role for asset in grouped_assets for role in asset.roles
+            )
+        )
+        target = grouped_assets[0].description
+        constraints = _preservation_constraints(roles)
+        operations = _reference_operations(
+            segment.action,
+            combined=combined or len(grouped_assets) > 1,
+            maintain=True,
+        )
+        bindings.append(
+            ReferenceBinding(
+                asset_tags=[asset.tag for asset in grouped_assets],
+                modality=BindingModality.visual,
+                operations=operations,
+                controls=roles,
+                target=target,
+                instruction=(
+                    f"Use {' and '.join(asset.tag for asset in grouped_assets)} "
+                    f"for {target}; " + "; ".join(constraints) + "."
+                ),
+                visible=True,
+                strength=(
+                    0.95 if AssetRole.character_identity in roles else 0.9
+                ),
+            )
+        )
+
+    voice_tags: set[str] = set()
+    for cue in segment.dialogue:
+        tag = cue.speaker_reference_tag
+        if not tag or tag in voice_tags or tag not in by_tag:
+            continue
+        voice_tags.add(tag)
+        asset = by_tag[tag]
+        bindings.append(
+            ReferenceBinding(
+                asset_tags=[tag],
+                modality=BindingModality.voice,
+                operations=[ReferenceOperation.reference],
+                controls=[AssetRole.voice],
+                target=cue.speaker,
+                instruction=(
+                    f"Link dialogue and emotional performance to {cue.speaker} "
+                    f"({tag}); do not make the speaker visible unless the shot "
+                    "also contains a visual binding for that asset."
+                ),
+                visible=False,
+                strength=0.9,
+            )
+        )
+    return bindings
 
 
 def _reference_for_name(
@@ -234,11 +474,7 @@ def compile_director_plan(
     first_time_offset = time_matches[0].start() if time_matches else len(prompt)
     planning_header = prompt[:first_time_offset]
     references = [
-        PlanReference(
-            index=int(index),
-            tag=tag.lower(),
-            description=description.strip(),
-        )
+        _omni_asset(int(index), tag, description)
         for tag, index, description in REFERENCE_PATTERN.findall(planning_header)
     ]
     references.sort(key=lambda reference: reference.index)
@@ -247,10 +483,10 @@ def compile_director_plan(
     for value in sorted({int(value) for value in IMAGE_TAG_PATTERN.findall(prompt)}):
         if value not in defined_indexes:
             references.append(
-                PlanReference(
-                    index=value,
-                    tag=f"@image{value}",
-                    description=f"Unlabelled image {value}",
+                _omni_asset(
+                    value,
+                    f"@image{value}",
+                    f"Unlabelled image {value}",
                 )
             )
     references.sort(key=lambda reference: reference.index)
@@ -295,6 +531,9 @@ def compile_director_plan(
             _segment(1, 0, fallback_duration, prompt, references)
         )
 
+    for segment in segments:
+        segment.reference_bindings = _reference_bindings(segment, references)
+
     duration_seconds = _duration(
         metadata,
         segments[-1].end_seconds,
@@ -315,6 +554,18 @@ def compile_director_plan(
                     "to an image reference."
                 )
 
+    bound_tags = {
+        tag
+        for segment in segments
+        for binding in segment.reference_bindings
+        for tag in binding.asset_tags
+    }
+    for asset in references:
+        if asset.tag not in bound_tags:
+            warnings.append(
+                f"Asset {asset.tag} is defined but not used by any shot."
+            )
+
     return DirectorPlan(
         title=_title(metadata_header),
         requested_model=metadata.get("model"),
@@ -322,7 +573,7 @@ def compile_director_plan(
         purpose=metadata.get("purpose"),
         voice_direction=metadata.get("voice"),
         duration_seconds=duration_seconds,
-        references=references,
+        omni_assets=references,
         segments=segments,
         warnings=list(dict.fromkeys(warnings)),
     )

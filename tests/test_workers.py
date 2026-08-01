@@ -201,6 +201,8 @@ def test_segment_prompt_preserves_director_cues(tmp_path: Path) -> None:
     prompt = build_segment_prompt(plan, plan.segments[1])
 
     assert "Visual references: @image2." in prompt
+    assert "ReferenceBinding [visual]" in prompt
+    assert "controls: environment, composition" in prompt
     assert "Transition: Hard cut to black." in prompt
 
 

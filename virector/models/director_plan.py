@@ -1,14 +1,13 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, model_validator
+
+from virector.models.omni_asset import OmniAsset, ReferenceBinding
 
 
 class DirectorPlanRequest(BaseModel):
     direction_prompt: str = Field(min_length=10, max_length=20_000)
 
 
-class PlanReference(BaseModel):
-    index: int = Field(ge=1, le=9)
-    tag: str = Field(pattern=r"^@image[1-9]$")
-    description: str = Field(min_length=1, max_length=300)
+PlanReference = OmniAsset
 
 
 class DialogueCue(BaseModel):
@@ -28,6 +27,10 @@ class DirectorSegment(BaseModel):
     duration_seconds: float = Field(gt=0, le=15)
     action: str = Field(min_length=1, max_length=5000)
     reference_tags: list[str] = Field(default_factory=list, max_length=9)
+    reference_bindings: list[ReferenceBinding] = Field(
+        default_factory=list,
+        max_length=24,
+    )
     dialogue: list[DialogueCue] = Field(default_factory=list, max_length=20)
     sound_cues: list[str] = Field(default_factory=list, max_length=20)
     on_screen_text: list[str] = Field(default_factory=list, max_length=20)
@@ -53,13 +56,23 @@ class DirectorPlan(BaseModel):
     purpose: str | None = Field(default=None, max_length=500)
     voice_direction: str | None = Field(default=None, max_length=500)
     duration_seconds: float = Field(gt=0, le=15)
-    references: list[PlanReference] = Field(default_factory=list, max_length=9)
+    omni_assets: list[OmniAsset] = Field(
+        default_factory=list,
+        max_length=12,
+        validation_alias=AliasChoices("omni_assets", "references"),
+    )
     segments: list[DirectorSegment] = Field(min_length=1, max_length=20)
     warnings: list[str] = Field(default_factory=list, max_length=50)
 
+    @property
+    def references(self) -> list[OmniAsset]:
+        """Backward-compatible accessor for pre-OmniAsset integrations."""
+
+        return self.omni_assets
+
     @model_validator(mode="after")
     def validate_plan(self) -> "DirectorPlan":
-        reference_tags = [reference.tag for reference in self.references]
+        reference_tags = [asset.tag for asset in self.omni_assets]
         if len(set(reference_tags)) != len(reference_tags):
             raise ValueError("DirectorPlan reference tags must be unique")
 
@@ -77,6 +90,17 @@ class DirectorPlan(BaseModel):
                 raise ValueError(
                     "Segment references images not defined by the plan: "
                     + ", ".join(sorted(unknown_tags))
+                )
+            binding_tags = {
+                tag
+                for binding in segment.reference_bindings
+                for tag in binding.asset_tags
+            }
+            unknown_binding_tags = binding_tags - known_tags
+            if unknown_binding_tags:
+                raise ValueError(
+                    "ReferenceBinding uses undefined assets: "
+                    + ", ".join(sorted(unknown_binding_tags))
                 )
             previous_end = segment.end_seconds
         return self

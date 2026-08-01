@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from virector.models.director_plan import DirectorPlan
+from virector.models.omni_asset import AssetRole, BindingModality, ReferenceOperation
 from virector.services.director_plan import compile_director_plan
 
 
@@ -124,6 +125,123 @@ def test_extracts_dialogue_sound_message_transition_and_title_card() -> None:
     assert final.title_card == "THE SON WHO OWED BOTH SIDES TO BE CONTINUED"
 
 
+def test_infers_clip_8_omni_asset_roles() -> None:
+    plan = compile_director_plan(CLIP_8)
+    assets = {asset.tag: asset for asset in plan.omni_assets}
+
+    assert assets["@image1"].roles == [
+        AssetRole.character_identity,
+        AssetRole.wardrobe,
+    ]
+    assert assets["@image1"].identity_group == "marcia-campbell"
+    assert assets["@image4"].roles == [
+        AssetRole.environment,
+        AssetRole.composition,
+    ]
+    assert assets["@image5"].roles == [
+        AssetRole.prop,
+        AssetRole.readable_text,
+    ]
+    assert assets["@image7"].roles == [
+        AssetRole.prop,
+        AssetRole.readable_text,
+    ]
+
+
+def test_compiles_visual_and_offscreen_voice_bindings() -> None:
+    plan = compile_director_plan(CLIP_8)
+    first = plan.segments[0]
+    visual = [
+        binding
+        for binding in first.reference_bindings
+        if binding.modality == BindingModality.visual
+    ]
+    voice = [
+        binding
+        for binding in first.reference_bindings
+        if binding.modality == BindingModality.voice
+    ]
+
+    assert [binding.asset_tags for binding in visual] == [
+        ["@image1"],
+        ["@image2"],
+        ["@image4"],
+    ]
+    assert AssetRole.character_identity in visual[0].controls
+    assert AssetRole.environment in visual[2].controls
+    assert ReferenceOperation.combine in visual[0].operations
+    assert ReferenceOperation.maintain in visual[0].operations
+    assert voice[0].asset_tags == ["@image8"]
+    assert voice[0].visible is False
+    assert "do not make the speaker visible" in voice[0].instruction
+
+
+def test_groups_multi_angle_images_into_one_identity_binding() -> None:
+    prompt = """CHARACTER TEST
+Duration: 4 seconds
+
+Image References
+@image1: Marcia Campbell front view
+@image2: Marcia Campbell side view
+@image3: Campbell House
+
+0:00-0:04
+Extract and combine @image1 and @image2 to preserve Marcia's appearance as she
+walks through @image3.
+"""
+
+    plan = compile_director_plan(prompt)
+    binding = plan.segments[0].reference_bindings[0]
+
+    assert binding.asset_tags == ["@image1", "@image2"]
+    assert binding.target == "Marcia Campbell front view"
+    assert binding.operations == [
+        ReferenceOperation.reference,
+        ReferenceOperation.extract,
+        ReferenceOperation.combine,
+        ReferenceOperation.maintain,
+    ]
+    assert binding.controls == [
+        AssetRole.character_identity,
+        AssetRole.wardrobe,
+    ]
+
+
+def test_camera_reference_is_not_classified_as_a_character() -> None:
+    prompt = """CAMERA TEST
+Duration: 4 seconds
+
+Image References
+@image1: Marcia Campbell
+@image2: Camera framing reference
+
+0:00-0:04
+@image1 walks forward. Follow the framing from @image2.
+"""
+
+    plan = compile_director_plan(prompt)
+    camera_asset = plan.omni_assets[1]
+
+    assert camera_asset.roles == [AssetRole.camera]
+    assert camera_asset.identity_group is None
+
+
+def test_warns_when_defined_asset_is_unused() -> None:
+    plan = compile_director_plan(
+        """CLIP
+Duration: 4 seconds
+Image References
+@image1: Lead character
+@image2: Unused logo
+
+0:00-0:04
+@image1 walks into frame.
+"""
+    )
+
+    assert "Asset @image2 is defined but not used by any shot." in plan.warnings
+
+
 def test_plan_rejects_segment_beyond_fifteen_seconds() -> None:
     with pytest.raises((ValidationError, ValueError)):
         compile_director_plan(
@@ -158,3 +276,13 @@ def test_director_plan_serializes_as_worker_ready_json() -> None:
     restored = DirectorPlan.model_validate_json(plan.model_dump_json())
 
     assert restored == plan
+
+
+def test_director_plan_accepts_legacy_references_field() -> None:
+    plan = compile_director_plan(CLIP_8)
+    payload = plan.model_dump(mode="json")
+    payload["references"] = payload.pop("omni_assets")
+
+    restored = DirectorPlan.model_validate(payload)
+
+    assert restored.omni_assets == plan.omni_assets

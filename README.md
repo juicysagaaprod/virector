@@ -13,6 +13,7 @@ The starter includes:
 - Gradio internal model-testing panel
 - Pydantic `ShotSpec`
 - Pydantic `DirectorPlan` with screenplay-to-timeline compilation
+- Hidden `OmniAsset` and per-shot `ReferenceBinding` compilation
 - Transparent-PNG character compositor
 - Job manifests and output folders
 - Pluggable workers for local LTX, self-hosted VACE and future cloud GPUs
@@ -102,6 +103,12 @@ normal Studio does not expose an analysis step or timeline. The local LTX worker
 still treats the plan as a single preview request unless Performance mode is
 enabled. The authenticated `POST /api/director-plans/preview` endpoint remains
 available for developer diagnostics.
+
+New plans infer character identity, wardrobe, environment, prop, readable-text,
+composition and style roles automatically. They also compile visible and
+off-screen voice bindings, multi-angle identity groups, preservation constraints
+and reference operations such as extract, combine, follow, replace and maintain.
+The internal contract is documented in [`docs/omni-assets.md`](docs/omni-assets.md).
 
 ### Multi-shot PerformanceWorker
 

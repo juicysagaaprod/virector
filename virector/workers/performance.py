@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from virector.models.director_plan import DirectorPlan, DirectorSegment
+from virector.models.omni_asset import BindingModality
 from virector.models.shot_spec import ShotSpec
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
 
@@ -27,6 +28,13 @@ def build_segment_prompt(plan: DirectorPlan, segment: DirectorSegment) -> str:
     ]
     if segment.reference_tags:
         lines.append("Visual references: " + ", ".join(segment.reference_tags) + ".")
+    for binding in segment.reference_bindings:
+        operations = ", ".join(operation.value for operation in binding.operations)
+        controls = ", ".join(control.value for control in binding.controls)
+        lines.append(
+            f"ReferenceBinding [{binding.modality.value}] "
+            f"({operations}; controls: {controls}): {binding.instruction}"
+        )
     for cue in segment.dialogue:
         speaker = (
             f"{cue.speaker_reference_tag} {cue.speaker}"
@@ -144,10 +152,17 @@ class PerformanceWorker(VideoWorker):
         segment: DirectorSegment,
         output_dir: Path,
     ) -> RenderJob:
+        visual_binding_tags = {
+            tag
+            for binding in segment.reference_bindings
+            if binding.modality == BindingModality.visual and binding.visible
+            for tag in binding.asset_tags
+        }
+        selected_tags = visual_binding_tags or set(segment.reference_tags)
         selected_assets = tuple(
             asset
             for asset in job.reference_assets
-            if not segment.reference_tags or asset.tag in segment.reference_tags
+            if not selected_tags or asset.tag in selected_tags
         )
         if not selected_assets:
             selected_assets = job.reference_assets
