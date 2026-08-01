@@ -17,6 +17,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import ValidationError
 
+from virector.models.director_plan import DirectorPlan, DirectorPlanRequest
 from virector.models.shot_spec import (
     RESOLUTION_PRESETS,
     AspectRatio,
@@ -29,6 +30,7 @@ from virector.services.auth import (
     TokenVerifier,
     create_token_verifier,
 )
+from virector.services.director_plan import compile_director_plan
 from virector.services.job_repository import JobIdentity, JobRepositoryError
 from virector.services.jobs import JobService
 from virector.services.references import (
@@ -126,6 +128,16 @@ def build_api(
         if worker.fallback_reason:
             payload["fallback_reason"] = worker.fallback_reason
         return payload
+
+    @router.post("/director-plans/preview", response_model=DirectorPlan)
+    def preview_director_plan(
+        request: DirectorPlanRequest,
+        _user: AuthenticatedUser | None = Depends(authenticate),
+    ) -> DirectorPlan:
+        try:
+            return compile_director_plan(request.direction_prompt)
+        except (ValidationError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @router.post("/renders", status_code=202)
     async def create_render(

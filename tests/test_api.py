@@ -12,6 +12,24 @@ from virector.services.jobs import JobService
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
 
 
+DIRECTOR_PROMPT = """CLIP 8 — DON’T CALL MICAH
+Duration: Approximately 6 seconds Voice: Natural Kingston Jamaican accents
+
+Image References
+@image1: Marcia Campbell
+@image2: Uncle Teddy
+
+0:00-0:03
+Camera pushes toward @image1 as she looks at Uncle Teddy.
+Marcia: “Something wrong.”
+
+0:03-0:06
+@image2 follows @image1 across the room.
+Uncle Teddy: “Call him.”
+Transition: Hard cut to black.
+"""
+
+
 class ApiWorker(VideoWorker):
     mode = "test"
     requested_mode = "test"
@@ -161,6 +179,40 @@ def test_health_reports_job_repository(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json()["job_repository"] == "local"
     assert response.json()["auth_required"] is False
+
+
+def test_director_plan_preview_compiles_timed_shots(tmp_path: Path) -> None:
+    client = make_client(tmp_path, ApiWorker())
+
+    response = client.post(
+        "/api/director-plans/preview",
+        json={"direction_prompt": DIRECTOR_PROMPT},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["title"] == "CLIP 8 — DON’T CALL MICAH"
+    assert payload["duration_seconds"] == 6
+    assert len(payload["segments"]) == 2
+    assert payload["segments"][0]["reference_tags"] == ["@image1", "@image2"]
+    assert payload["segments"][1]["transition"] == "Hard cut to black."
+
+
+def test_director_plan_preview_requires_auth_when_enabled(tmp_path: Path) -> None:
+    client = make_client(tmp_path, ApiWorker(), auth_required=True)
+
+    anonymous = client.post(
+        "/api/director-plans/preview",
+        json={"direction_prompt": DIRECTOR_PROMPT},
+    )
+    authenticated = client.post(
+        "/api/director-plans/preview",
+        headers={"Authorization": "Bearer owner-token"},
+        json={"direction_prompt": DIRECTOR_PROMPT},
+    )
+
+    assert anonymous.status_code == 401
+    assert authenticated.status_code == 200
 
 
 def test_render_api_requires_authentication_when_enabled(tmp_path: Path) -> None:

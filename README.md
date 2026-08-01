@@ -12,6 +12,7 @@ The starter includes:
 - FastAPI render API
 - Gradio internal model-testing panel
 - Pydantic `ShotSpec`
+- Pydantic `DirectorPlan` with screenplay-to-timeline compilation
 - Transparent-PNG character compositor
 - Job manifests and output folders
 - Pluggable workers for local LTX, self-hosted VACE and future cloud GPUs
@@ -77,6 +78,25 @@ the HTTP request. The web client polls the owner-scoped
 `GET /api/renders/{job_id}` endpoint for progress and retrieves the protected
 video only after the job reaches `completed`. This keeps FastAPI responsive
 while local or cloud GPU work is running.
+
+### DirectorPlan screenplay preview
+
+The production Studio can compile a screenplay-style direction prompt before
+rendering. Use headings such as `Image References`, ordered `@image1:` through
+`@image9:` definitions and timed ranges such as `0:00-0:03`. DirectorPlan
+extracts:
+
+- shot timing and duration;
+- the visual references required by each shot;
+- dialogue, delivery notes and speaker-to-character reference links;
+- sound cues and on-screen messages; and
+- transitions and title cards.
+
+Select **Analyze DirectorPlan** below the direction prompt to inspect the
+compiled timeline. Multi-shot plans remain deliberately blocked from the
+single-shot LTX worker until the cloud performance worker and final assembly
+pipeline are connected. The authenticated preview endpoint is
+`POST /api/director-plans/preview`.
 
 To enable authentication locally, set the same public values in the root `.env`
 for both the API and browser, then rebuild the web image:
