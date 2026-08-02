@@ -355,6 +355,15 @@ movement and camera from @video1 while @image1 walks through @image2. Use the
 voice and rhythm from @audio1.
 ```
 
+The image-reference compiler accepts both `Image 1` and `@image1` spellings.
+It compiles the operations **Reference**, **Extract**, **Combine**, **Follow**,
+**Replace**, **Generate** and **Maintain** into ordered `ReferenceBinding`
+contracts. Multi-angle images with the same subject name are grouped into one
+identity; character, wardrobe, product, environment, logo and storyboard images
+remain separate controls when their roles differ. The compiled contract is
+placed before the prose prompt sent to VACE so ordered image semantics are not
+lost inside a long screenplay.
+
 The tags `@image1`–`@image9`, `@video1`–`@video3` and `@audio1`–`@audio3` are
 stored in both `ShotSpec.references` and the job manifest, with a maximum of 12
 assets per render. Virector validates that every upload is mentioned and that
@@ -371,7 +380,9 @@ complete indexed reference set and the prompt containing `@imageN` instructions.
 `DiffusersVaceBackend` connects that boundary to the official
 `Wan-AI/Wan2.1-VACE-1.3B-diffusers` checkpoint, passes every ordered reference
 image to `WanVACEPipeline`, and uses 4-bit quantization plus sequential CPU
-offload for the guarded local path.
+offload for the guarded local path. VACE generates at its native 16 fps cadence;
+Virector then applies motion-compensated interpolation and exports the delivery
+MP4 at the `ShotSpec` target of 24 fps while preserving the requested duration.
 
 Run the hardware preflight before downloading the 19GB checkpoint:
 

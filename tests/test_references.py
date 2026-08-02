@@ -31,6 +31,13 @@ def test_prompt_accepts_every_uploaded_image_tag() -> None:
     )
 
 
+def test_prompt_accepts_human_readable_image_numbers() -> None:
+    validate_prompt_reference_tags(
+        "Reference the character from Image 1 inside the world from Image 2.",
+        2,
+    )
+
+
 def test_prompt_rejects_missing_uploaded_image_tag() -> None:
     with pytest.raises(ValueError, match="@image2"):
         validate_prompt_reference_tags("@image1 walks forward.", 2)

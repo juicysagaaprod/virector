@@ -31,6 +31,7 @@ class ReferenceOperation(str, Enum):
     combine = "combine"
     follow = "follow"
     replace = "replace"
+    generate = "generate"
     maintain = "maintain"
 
 

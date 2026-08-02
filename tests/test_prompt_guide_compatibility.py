@@ -249,3 +249,152 @@ Image References
         "@audio1",
         BindingModality.audio,
     ).controls == [AssetRole.audio]
+
+
+def test_human_readable_multi_angle_product_reference_compiles() -> None:
+    plan = compile_director_plan(
+        """PRODUCT ORBIT
+Duration: 4 seconds
+
+Image References
+Image 1: Camera product front view
+Image 2: Camera product side view
+Image 3: Camera product back view
+
+0:00-0:04
+Extract and combine the camera from Image 1, Image 2 and Image 3. Replace the
+background with white and generate a slow orbit maintaining product details.
+"""
+    )
+
+    binding = _binding(plan.segments[0], "@image1")
+
+    assert binding.asset_tags == ["@image1", "@image2", "@image3"]
+    assert binding.controls == [AssetRole.prop]
+    assert binding.operations == [
+        ReferenceOperation.reference,
+        ReferenceOperation.extract,
+        ReferenceOperation.combine,
+        ReferenceOperation.replace,
+        ReferenceOperation.generate,
+        ReferenceOperation.maintain,
+    ]
+
+
+def test_human_readable_character_multi_angle_reference_compiles() -> None:
+    plan = compile_director_plan(
+        """COFFEE SHOP
+Duration: 4 seconds
+
+Image References
+Image 1: Amara Jones front view
+Image 2: Amara Jones side view
+Image 3: Amara Jones three quarter view
+
+0:00-0:04
+Reference the woman's appearance from Image 1, Image 2 and Image 3. Generate
+her eating cake at a coffee shop, maintaining her face, body and wardrobe.
+"""
+    )
+
+    identity = _binding(plan.segments[0], "@image1")
+
+    assert identity.asset_tags == ["@image1", "@image2", "@image3"]
+    assert identity.controls == [
+        AssetRole.character_identity,
+        AssetRole.wardrobe,
+    ]
+    assert ReferenceOperation.generate in identity.operations
+    assert ReferenceOperation.maintain in identity.operations
+
+
+def test_human_readable_multi_element_reference_compiles() -> None:
+    plan = compile_director_plan(
+        """RESTAURANT MEETING
+Duration: 5 seconds
+
+Image References
+Image 1: Lead girl
+Image 2: Red outfit
+Image 3: Lead boy
+Image 4: Restaurant interior
+Image 5: Restaurant logo
+
+0:00-0:05
+The scene is set inside the restaurant from Image 4. The girl from Image 1 is
+wearing the outfit from Image 2. The boy from Image 3 walks up to her. Maintain
+the logo from Image 5 in the bottom-right corner.
+"""
+    )
+
+    assert _asset(plan, "@image1").roles == [
+        AssetRole.character_identity,
+        AssetRole.wardrobe,
+    ]
+    assert _asset(plan, "@image2").roles == [AssetRole.wardrobe]
+    assert _asset(plan, "@image4").roles == [
+        AssetRole.environment,
+        AssetRole.composition,
+    ]
+    assert _asset(plan, "@image5").roles == [
+        AssetRole.prop,
+        AssetRole.readable_text,
+    ]
+    assert len(plan.segments[0].reference_bindings) == 5
+
+
+def test_storyboard_panels_and_characters_compile_in_order() -> None:
+    plan = compile_director_plan(
+        """DINNER STORYBOARD
+Duration: 6 seconds
+
+Image References
+Image 1: Girl character
+Image 2: Dad character
+Image 3: Storyboard panel one
+Image 4: Storyboard panel two
+
+0:00-0:03
+Follow the storyboard composition from Image 3. The girl from Image 1 waits
+for her dad.
+Girl: "Is dinner ready?"
+
+0:03-0:06
+Pan right and follow Image 4's scene and composition. The dad from Image 2
+replies.
+Dad: "Almost done."
+"""
+    )
+
+    first_storyboard = _binding(plan.segments[0], "@image3")
+    second_storyboard = _binding(plan.segments[1], "@image4")
+
+    assert first_storyboard.controls == [
+        AssetRole.storyboard,
+        AssetRole.composition,
+    ]
+    assert second_storyboard.controls == [
+        AssetRole.storyboard,
+        AssetRole.composition,
+    ]
+    assert ReferenceOperation.follow in first_storyboard.operations
+    assert ReferenceOperation.follow in second_storyboard.operations
+    assert plan.segments[0].dialogue[0].speaker_reference_tag == "@image1"
+    assert plan.segments[1].dialogue[0].speaker_reference_tag == "@image2"
+
+
+def test_unlabelled_prose_references_infer_character_and_world_roles() -> None:
+    plan = compile_director_plan(
+        "Reference the woman from Image 1 and place her naturally inside the "
+        "restaurant environment from Image 2, maintaining both designs.",
+        fallback_duration=4,
+    )
+
+    assert _asset(plan, "@image1").roles == [
+        AssetRole.character_identity,
+        AssetRole.wardrobe,
+    ]
+    assert _asset(plan, "@image2").roles == [
+        AssetRole.environment,
+        AssetRole.composition,
+    ]

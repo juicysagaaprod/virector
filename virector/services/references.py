@@ -4,9 +4,12 @@ from collections.abc import Sequence
 from virector.models.omni_asset import OmniMediaType
 from virector.models.shot_spec import ReferenceDirective
 
-
 REFERENCE_TAG_PATTERN = re.compile(
     r"(?<![a-z0-9_])@(image|video|audio)(\d+)\b",
+    re.IGNORECASE,
+)
+HUMAN_REFERENCE_PATTERN = re.compile(
+    r"(?<![@a-z0-9_])\b(image|video|audio)\s*#?\s*(\d+)\b",
     re.IGNORECASE,
 )
 REFERENCE_LIMITS = {
@@ -15,6 +18,25 @@ REFERENCE_LIMITS = {
     OmniMediaType.audio: 3,
 }
 MAX_OMNI_REFERENCES = 12
+
+
+def normalize_reference_mentions(prompt: str) -> str:
+    """Normalize ``Image 1``-style references to Virector's stable tags."""
+
+    return HUMAN_REFERENCE_PATTERN.sub(
+        lambda match: f"@{match.group(1).lower()}{int(match.group(2))}",
+        prompt,
+    )
+
+
+def extract_reference_tags(prompt: str) -> set[str]:
+    """Return normalized omni tags from either supported prompt spelling."""
+
+    normalized = normalize_reference_mentions(prompt)
+    return {
+        f"@{media_type.lower()}{int(index)}"
+        for media_type, index in REFERENCE_TAG_PATTERN.findall(normalized)
+    }
 
 
 def build_reference_directives(
@@ -77,10 +99,7 @@ def validate_prompt_reference_tags(
     else:
         directives = list(references)
     expected = {directive.tag for directive in directives}
-    mentioned = {
-        f"@{media_type.lower()}{int(index)}"
-        for media_type, index in REFERENCE_TAG_PATTERN.findall(prompt)
-    }
+    mentioned = extract_reference_tags(prompt)
     unknown = sorted(mentioned - expected)
     if unknown:
         raise ValueError(

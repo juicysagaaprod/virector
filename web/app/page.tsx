@@ -51,6 +51,20 @@ function fileSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function promptReferenceTags(value: string) {
+  const normalized = value.replace(
+    /\b(image|video|audio)\s*#?\s*(\d+)\b/gi,
+    (_, mediaType: string, index: string) =>
+      `@${mediaType.toLowerCase()}${Number(index)}`,
+  );
+  return new Set(
+    Array.from(
+      normalized.matchAll(/@(image|video|audio)(\d+)\b/gi),
+      (match) => `@${match[1].toLowerCase()}${Number(match[2])}`,
+    ),
+  );
+}
+
 async function responsePayload(response: Response) {
   const body = await response.text();
   if (!body) return {};
@@ -320,12 +334,7 @@ export default function DirectorStudio() {
       setStatus("Sign in and select a project before generating video.");
       return;
     }
-    const mentioned = new Set(
-      Array.from(
-        prompt.matchAll(/@(image|video|audio)(\d+)\b/gi),
-        (match) => `@${match[1].toLowerCase()}${Number(match[2])}`,
-      ),
-    );
+    const mentioned = promptReferenceTags(prompt);
     const missing = referenceTags.filter((tag) => !mentioned.has(tag));
     if (missing.length) {
       setStatus(`Mention every uploaded reference in the prompt: ${missing.join(", ")}.`);
@@ -538,7 +547,8 @@ export default function DirectorStudio() {
           <p className="omni-intro">
             Add up to 12 total assets. Images establish visual identity; videos
             provide motion, camera or effect references; audio provides voice,
-            rhythm and sound references.
+            rhythm and sound references. Upload order assigns Image 1, Image 2,
+            and matching @image tags automatically.
           </p>
           <div className="media-reference-stack">
             {referenceGroup("image", "Images", "image/png,image/jpeg,image/webp", "PNG, JPG or WEBP")}
@@ -547,12 +557,12 @@ export default function DirectorStudio() {
           </div>
           <div className="prompt-block">
             <div className="panel-heading compact"><div><span className="step">02</span><h2>Direction prompt</h2></div></div>
-            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Paste a screenplay with timed sections, or direct one shot using @image, @video and @audio tags." maxLength={20000} required />
+            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Direct one shot or paste a screenplay. Refer to uploads as Image 1, Image 2… or @image1, @image2…" maxLength={20000} required />
             <div className="prompt-footer">
               <span>{referenceTags.length ? `Use ${referenceTags.join(", ")}` : "Upload assets to create prompt tags"}</span>
               <span>{prompt.length}/20000</span>
             </div>
-            <p className="prompt-hint">Timing, references, dialogue, sound and transitions are interpreted automatically when you generate.</p>
+            <p className="prompt-hint">Reference, Extract, Combine, Follow, Replace, Generate and Maintain instructions are compiled automatically with timing, dialogue, sound and transitions.</p>
           </div>
         </section>
 

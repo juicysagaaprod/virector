@@ -1,5 +1,6 @@
 import gc
 import importlib.util
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,34 +52,81 @@ def ltx_segment_frame_counts(
     return segments
 
 
+def _ffmpeg_executable() -> str:
+    executable = shutil.which("ffmpeg")
+    if executable:
+        return executable
+
+    try:
+        import imageio_ffmpeg
+    except ImportError as exc:
+        raise RuntimeError(
+            "Video post-processing requires FFmpeg or imageio-ffmpeg."
+        ) from exc
+    return imageio_ffmpeg.get_ffmpeg_exe()
+
+
+def _postprocess_video(
+    source: Path,
+    output: Path,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+    fps: int | None = None,
+    interpolate: bool = False,
+) -> None:
+    filters: list[str] = []
+    if fps is not None:
+        if interpolate:
+            filters.append(
+                f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:"
+                "me_mode=bidir:vsbmc=1"
+            )
+        else:
+            filters.append(f"fps={fps}")
+    if width is not None or height is not None:
+        if width is None or height is None:
+            raise ValueError("Video scaling requires both width and height.")
+        filters.append(f"scale={width}:{height}:flags=lanczos")
+
+    command = [
+        _ffmpeg_executable(),
+        "-y",
+        "-i",
+        str(source),
+    ]
+    if filters:
+        command.extend(["-vf", ",".join(filters)])
+    command.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-crf",
+            "18",
+            "-preset",
+            "medium",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(output),
+        ]
+    )
+    subprocess.run(command, check=True, capture_output=True)
+
+
 def _upscale_video(
     source: Path,
     output: Path,
     width: int,
     height: int,
 ) -> None:
-    import imageio_ffmpeg
-
-    command = [
-        imageio_ffmpeg.get_ffmpeg_exe(),
-        "-y",
-        "-i",
-        str(source),
-        "-vf",
-        f"scale={width}:{height}:flags=lanczos",
-        "-c:v",
-        "libx264",
-        "-crf",
-        "18",
-        "-preset",
-        "medium",
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
-        str(output),
-    ]
-    subprocess.run(command, check=True, capture_output=True)
+    _postprocess_video(
+        source,
+        output,
+        width=width,
+        height=height,
+    )
 
 
 @dataclass(frozen=True)

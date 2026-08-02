@@ -13,7 +13,7 @@ from virector.models.omni_asset import (
     ReferenceBinding,
     ReferenceOperation,
 )
-
+from virector.services.references import normalize_reference_mentions
 
 TIME_RANGE_PATTERN = re.compile(
     r"(?m)^\s*(\d+):(\d{2}(?:\.\d+)?)\s*[\u2013\u2014-]\s*"
@@ -59,13 +59,18 @@ ENVIRONMENT_WORDS = {
 }
 PROP_WORDS = {
     "account",
+    "bottle",
     "car",
+    "camera",
     "document",
     "folder",
     "id",
+    "item",
     "logo",
     "phone",
+    "product",
     "smartphone",
+    "thermos",
     "vehicle",
 }
 TEXT_WORDS = {
@@ -82,8 +87,10 @@ TEXT_WORDS = {
 WARDROBE_WORDS = {"clothing", "costume", "dress", "outfit", "uniform", "wardrobe"}
 PERSON_WORDS = {
     "boy",
+    "cat",
     "character",
     "dad",
+    "dog",
     "father",
     "girl",
     "man",
@@ -91,6 +98,44 @@ PERSON_WORDS = {
     "person",
     "woman",
 }
+ANGLE_WORDS = {
+    "back",
+    "front",
+    "left",
+    "profile",
+    "rear",
+    "right",
+    "side",
+    "three",
+    "quarter",
+    "view",
+}
+VISUAL_USAGE_LABELS = (
+    "thermos bottle",
+    "coffee shop",
+    "home scene",
+    "storyboard panels",
+    "storyboard",
+    "restaurant",
+    "background",
+    "environment",
+    "outfit",
+    "uniform",
+    "wardrobe",
+    "logo",
+    "camera",
+    "product",
+    "bottle",
+    "character",
+    "woman",
+    "girl",
+    "boy",
+    "father",
+    "dad",
+    "man",
+    "cat",
+    "dog",
+)
 
 
 def _timestamp(minutes: str, seconds: str) -> float:
@@ -155,13 +200,14 @@ def _asset_roles(
         roles.extend([AssetRole.storyboard, AssetRole.composition])
     if words & ENVIRONMENT_WORDS and not document_or_graphic:
         roles.extend([AssetRole.environment, AssetRole.composition])
-    if words & PROP_WORDS:
+    camera_control = bool(words & {"framing", "lens", "movement", "perspective"})
+    if words & PROP_WORDS and not ("camera" in words and camera_control):
         roles.append(AssetRole.prop)
     if words & TEXT_WORDS:
         roles.append(AssetRole.readable_text)
     if words & WARDROBE_WORDS:
         roles.append(AssetRole.wardrobe)
-    if words & {"camera", "framing", "lens"}:
+    if words & {"framing", "lens"} or ("camera" in words and camera_control):
         roles.append(AssetRole.camera)
     if words & {"effect", "effects", "particles", "wings"}:
         roles.append(AssetRole.effect)
@@ -173,22 +219,18 @@ def _asset_roles(
 
 
 def _identity_group(description: str, roles: list[AssetRole]) -> str | None:
-    if AssetRole.character_identity not in roles:
+    identity_role = AssetRole.character_identity in roles
+    multi_angle_prop = AssetRole.prop in roles and bool(
+        set(_normalise(description).split()) & ANGLE_WORDS
+    )
+    if not identity_role and not multi_angle_prop:
         return None
     normalised = _normalise(description)
     removable = {
         "appearance",
-        "back",
-        "front",
         "image",
-        "left",
-        "profile",
         "reference",
-        "right",
-        "side",
-        "three",
-        "view",
-        "quarter",
+        *ANGLE_WORDS,
     }
     words = [word for word in normalised.split() if word not in removable]
     return "-".join(words)[:120] or None
@@ -228,6 +270,62 @@ def _enrich_nonvisual_roles(
         )
 
 
+def _usage_description(tag: str, prompt: str) -> str:
+    """Infer the closest named visual element associated with an image tag."""
+
+    candidates: list[tuple[int, str]] = []
+    lowered = prompt.lower()
+    for tag_match in re.finditer(re.escape(tag), lowered):
+        tag_position = tag_match.start()
+        window_start = max(0, tag_position - 120)
+        window_end = min(len(lowered), tag_match.end() + 120)
+        window = lowered[window_start:window_end]
+        for label in VISUAL_USAGE_LABELS:
+            for label_match in re.finditer(rf"\b{re.escape(label)}\b", window):
+                absolute_position = window_start + label_match.start()
+                candidates.append((abs(absolute_position - tag_position), label))
+    if not candidates:
+        return f"Unlabelled {tag.removeprefix('@')}"
+
+    label = min(candidates, key=lambda item: item[0])[1]
+    descriptions = {
+        "storyboard": "Storyboard composition",
+        "storyboard panels": "Storyboard composition",
+        "background": "World background",
+        "environment": "World environment",
+        "home scene": "Home environment",
+        "coffee shop": "Coffee shop environment",
+        "restaurant": "Restaurant environment",
+        "outfit": "Outfit wardrobe",
+        "uniform": "Uniform wardrobe",
+        "wardrobe": "Outfit wardrobe",
+        "logo": "Logo graphic",
+        "camera": "Camera product",
+        "product": "Product item",
+        "bottle": "Bottle product",
+        "thermos bottle": "Thermos bottle product",
+    }
+    return descriptions.get(label, f"{label.title()} character")
+
+
+def _enrich_unlabelled_visual_roles(
+    assets: list[PlanReference],
+    prompt: str,
+) -> None:
+    """Infer visual roles when users describe assets only inside prose."""
+
+    for asset in assets:
+        if asset.media_type != OmniMediaType.image:
+            continue
+        if not asset.description.lower().startswith("unlabelled image"):
+            continue
+        description = _usage_description(asset.tag, prompt)
+        roles = _asset_roles(description, asset.media_type)
+        asset.description = description
+        asset.roles = roles
+        asset.identity_group = _identity_group(description, roles)
+
+
 def _reference_operations(
     text: str,
     *,
@@ -241,7 +339,11 @@ def _reference_operations(
         (ReferenceOperation.combine, r"\bcombine\b"),
         (ReferenceOperation.follow, r"\b(?:follow|following)\b"),
         (ReferenceOperation.replace, r"\breplace\b"),
-        (ReferenceOperation.maintain, r"\b(?:maintain|preserve|keep|keeping)\b"),
+        (ReferenceOperation.generate, r"\bgenerate\b"),
+        (
+            ReferenceOperation.maintain,
+            r"\b(?:maintain|maintaining|preserve|preserving|keep|keeping|consistent)\b",
+        ),
     )
     for operation, pattern in patterns:
         if re.search(pattern, normalised):
@@ -606,7 +708,9 @@ def compile_director_plan(
 ) -> DirectorPlan:
     """Compile Virector's screenplay-style direction prompt into timed shots."""
 
-    prompt = direction_prompt.replace("\r\n", "\n").strip()
+    prompt = normalize_reference_mentions(
+        direction_prompt.replace("\r\n", "\n").strip()
+    )
     if not prompt:
         raise ValueError("Direction prompt is empty.")
     invalid_media_tags = sorted(
@@ -668,6 +772,7 @@ def compile_director_plan(
                 )
             )
     references.sort(key=lambda reference: (media_order[reference.media_type], reference.index))
+    _enrich_unlabelled_visual_roles(references, prompt)
     _enrich_nonvisual_roles(references, prompt)
 
     reference_header = re.search(

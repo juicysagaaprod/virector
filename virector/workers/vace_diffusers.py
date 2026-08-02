@@ -6,19 +6,56 @@ from pathlib import Path
 from typing import Any
 
 from virector.config import Settings
+from virector.models.omni_asset import BindingModality
 from virector.models.shot_spec import (
     OUTPUT_RESOLUTION_PRESETS,
     OutputResolution,
+    ShotSpec,
 )
 from virector.workers.base import RenderJob
-from virector.workers.ltx_diffusers import _upscale_video
+from virector.workers.ltx_diffusers import _postprocess_video
 from virector.workers.vace import VaceBackend, VaceWorkerUnavailableError
-
 
 VACE_DOWNLOAD_GB = 19.04
 MINIMUM_GPU_GB = 7.5
 MINIMUM_RUNTIME_RAM_GB = 10.0
 RECOMMENDED_RUNTIME_RAM_GB = 24.0
+
+
+def build_vace_prompt(spec: ShotSpec) -> str:
+    """Put compiled image bindings before prose so VACE sees them first."""
+
+    plan = spec.director_plan
+    if plan is None:
+        return spec.prompt.strip()
+
+    instructions: list[str] = []
+    seen: set[tuple[str, ...]] = set()
+    for segment in plan.segments:
+        for binding in segment.reference_bindings:
+            if binding.modality != BindingModality.visual:
+                continue
+            key = tuple(binding.asset_tags)
+            if key in seen:
+                continue
+            seen.add(key)
+            operations = ", ".join(operation.value for operation in binding.operations)
+            controls = ", ".join(role.value for role in binding.controls)
+            tags = ", ".join(
+                tag.replace("@image", "Image ") for tag in binding.asset_tags
+            )
+            instructions.append(
+                f"{tags}: {operations}; controls {controls}; {binding.instruction}"
+            )
+    if not instructions:
+        return spec.prompt.strip()
+    contract = "\n".join(f"- {instruction}" for instruction in instructions)
+    return (
+        "Ordered image-reference contract:\n"
+        f"{contract}\n\n"
+        "Directed scene and action:\n"
+        f"{spec.prompt.strip()}"
+    )
 
 
 @dataclass(frozen=True)
@@ -221,8 +258,10 @@ class DiffusersVaceBackend(VaceBackend):
         import torch
         from diffusers import (
             AutoencoderKLWan,
-            BitsAndBytesConfig as DiffusersBitsAndBytesConfig,
             WanVACEPipeline,
+        )
+        from diffusers import (
+            BitsAndBytesConfig as DiffusersBitsAndBytesConfig,
         )
         from diffusers.quantizers import PipelineQuantizationConfig
         from diffusers.schedulers import UniPCMultistepScheduler
@@ -300,7 +339,7 @@ class DiffusersVaceBackend(VaceBackend):
         )
         generator = torch.Generator(device="cuda").manual_seed(job.spec.seed)
         result = pipeline(
-            prompt=job.spec.prompt,
+            prompt=build_vace_prompt(job.spec),
             negative_prompt=job.spec.negative_prompt,
             reference_images=references,
             height=job.spec.height,
@@ -312,18 +351,24 @@ class DiffusersVaceBackend(VaceBackend):
         )
 
         output = job.output_dir / "preview.mp4"
-        if job.spec.output_resolution == OutputResolution.preview:
-            export_to_video(result.frames[0], str(output), fps=self.settings.vace_fps)
-            return output
-
         native_output = job.output_dir / "preview-native.mp4"
         export_to_video(
             result.frames[0],
             str(native_output),
             fps=self.settings.vace_fps,
         )
-        output_width, output_height = OUTPUT_RESOLUTION_PRESETS[
-            job.spec.output_resolution
-        ][job.spec.aspect_ratio]
-        _upscale_video(native_output, output, output_width, output_height)
+
+        output_width = output_height = None
+        if job.spec.output_resolution != OutputResolution.preview:
+            output_width, output_height = OUTPUT_RESOLUTION_PRESETS[
+                job.spec.output_resolution
+            ][job.spec.aspect_ratio]
+        _postprocess_video(
+            native_output,
+            output,
+            width=output_width,
+            height=output_height,
+            fps=job.spec.fps,
+            interpolate=job.spec.fps != self.settings.vace_fps,
+        )
         return output

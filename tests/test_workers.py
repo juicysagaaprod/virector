@@ -11,6 +11,7 @@ from virector.workers.base import ReferenceAsset, RenderJob, RenderResult, Video
 from virector.workers.factory import create_worker
 from virector.workers.ltx import LtxWorker, LtxWorkerUnavailableError
 from virector.workers.ltx_diffusers import (
+    _postprocess_video,
     build_ltx_prompt,
     ltx_frame_count,
     ltx_segment_frame_counts,
@@ -19,6 +20,7 @@ from virector.workers.mock import MockWorker
 from virector.workers.performance import PerformanceWorker, build_segment_prompt
 from virector.workers.vace import VaceWorker, VaceWorkerUnavailableError
 from virector.workers.vace_diffusers import (
+    build_vace_prompt,
     evaluate_vace_hardware,
     vace_frame_count,
 )
@@ -465,6 +467,62 @@ def test_vace_frame_count_is_wan_compatible() -> None:
     assert vace_frame_count(1, fps=16, max_frames=81) == 17
     assert vace_frame_count(4, fps=16, max_frames=81) == 65
     assert vace_frame_count(15, fps=16, max_frames=81) == 81
+
+
+def test_vace_prompt_leads_with_compiled_image_reference_contract() -> None:
+    prompt = """WORLD TEST
+Duration: 4 seconds
+
+Image References
+Image 1: Lead character
+Image 2: House exterior
+
+0:00-0:04
+Combine Image 1 and Image 2. Generate the character walking through the house
+environment while maintaining both designs.
+"""
+    spec = ShotSpec(
+        prompt=prompt,
+        director_plan=compile_director_plan(prompt),
+    )
+
+    compiled = build_vace_prompt(spec)
+
+    assert compiled.startswith("Ordered image-reference contract:")
+    assert "Image 1: reference, combine, generate, maintain" in compiled
+    assert "controls character_identity, wardrobe" in compiled
+    assert "Image 2: reference, combine, generate, maintain" in compiled
+    assert "controls environment, composition" in compiled
+    assert compiled.endswith(prompt.strip())
+
+
+def test_postprocess_video_interpolates_to_delivery_fps(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(
+        "virector.workers.ltx_diffusers.shutil.which",
+        lambda _: "ffmpeg",
+    )
+    monkeypatch.setattr(
+        "virector.workers.ltx_diffusers.subprocess.run",
+        lambda command, **_: commands.append(command),
+    )
+
+    _postprocess_video(
+        tmp_path / "native.mp4",
+        tmp_path / "preview.mp4",
+        width=480,
+        height=832,
+        fps=24,
+        interpolate=True,
+    )
+
+    filter_value = commands[0][commands[0].index("-vf") + 1]
+    assert filter_value.startswith("minterpolate=fps=24:")
+    assert filter_value.endswith(",scale=480:832:flags=lanczos")
 
 
 def test_vace_preflight_blocks_insufficient_worker_ram() -> None:
