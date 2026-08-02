@@ -564,6 +564,8 @@ def _title(header: str) -> str:
             continue
         if re.match(r"(?i)^(?:model|duration|method|purpose|voice)\s*:", candidate):
             continue
+        if len(candidate) > 200:
+            continue
         return candidate
     return "Untitled clip"
 

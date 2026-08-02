@@ -271,6 +271,19 @@ def test_plain_prompt_uses_requested_fallback_duration() -> None:
     assert plan.segments[0].duration_seconds == 7
 
 
+def test_long_plain_prompt_uses_safe_fallback_title() -> None:
+    plan = compile_director_plan(
+        "@image1 walks naturally through @image2 while maintaining identity, "
+        "body proportions, wardrobe, realistic contact shadows, environmental "
+        "depth, perspective, natural lighting, grounded feet, stable framing, "
+        "and physically convincing movement throughout the complete scene.",
+        fallback_duration=1,
+    )
+
+    assert plan.title == "Untitled clip"
+    assert plan.duration_seconds == 1
+
+
 def test_director_plan_serializes_as_worker_ready_json() -> None:
     plan = compile_director_plan(CLIP_8)
     restored = DirectorPlan.model_validate_json(plan.model_dump_json())

@@ -1,7 +1,7 @@
 "use client";
 
 import type { Session } from "@supabase/supabase-js";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 
 import { supabase, supabaseConfigured } from "../lib/supabase";
@@ -142,6 +142,7 @@ export default function DirectorStudio() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [newProjectName, setNewProjectName] = useState("My Virector Project");
+  const restoredJobId = useRef<string | null>(null);
 
   const referenceTags = useMemo(
     () =>
@@ -203,6 +204,28 @@ export default function DirectorStudio() {
     return () => {
       active = false;
     };
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+    const jobId = new URLSearchParams(window.location.search).get("job");
+    if (
+      !jobId ||
+      !/^[0-9a-f]{32}$/.test(jobId) ||
+      restoredJobId.current === jobId
+    ) {
+      return;
+    }
+    restoredJobId.current = jobId;
+    setIsRendering(true);
+    setStatus(`Restoring completed render ${jobId}…`);
+    waitForRender(jobId, 0)
+      .catch((error) => {
+        setStatus(
+          error instanceof Error ? error.message : "Render could not be restored.",
+        );
+      })
+      .finally(() => setIsRendering(false));
   }, [session]);
 
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
@@ -300,9 +323,12 @@ export default function DirectorStudio() {
     });
   }
 
-  async function waitForRender(jobId: string) {
+  async function waitForRender(jobId: string, initialDelayMs = 2000) {
     for (let attempt = 0; attempt < 600; attempt += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      const delayMs = attempt === 0 ? initialDelayMs : 2000;
+      if (delayMs > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+      }
       let headers = await authHeaders();
       let response = await fetch(apiUrl(`/api/renders/${jobId}`), { headers });
       if (response.status === 401 && supabase) {
@@ -402,6 +428,10 @@ export default function DirectorStudio() {
       }
 
       const render = payload as unknown as RenderResponse;
+      const jobUrl = new URL(window.location.href);
+      jobUrl.searchParams.set("job", render.job_id);
+      window.history.replaceState(null, "", jobUrl);
+      restoredJobId.current = render.job_id;
       setStatus(`${render.message || render.status} Job: ${render.job_id}`);
       await waitForRender(render.job_id);
     } catch (error) {

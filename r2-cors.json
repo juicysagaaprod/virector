@@ -1,0 +1,21 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "http://localhost:3000",
+          "https://virector.netlify.app"
+        ],
+        "methods": ["GET", "HEAD"],
+        "headers": ["Range"]
+      },
+      "exposeHeaders": [
+        "Content-Length",
+        "Content-Range",
+        "Content-Type",
+        "ETag"
+      ],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}
