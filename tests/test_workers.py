@@ -1,6 +1,10 @@
+import shutil
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+from PIL import Image, ImageStat
 from pytest import MonkeyPatch
 
 from virector.config import Settings
@@ -523,6 +527,64 @@ def test_postprocess_video_interpolates_to_delivery_fps(
     filter_value = commands[0][commands[0].index("-vf") + 1]
     assert filter_value.startswith("minterpolate=fps=24:")
     assert filter_value.endswith(",scale=480:832:flags=lanczos")
+
+
+def test_postprocess_video_overlays_anchor_on_delivery_frame_zero(
+    tmp_path: Path,
+) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("FFmpeg is required for the delivery-frame retention contract.")
+
+    source = tmp_path / "native.mp4"
+    anchor = tmp_path / "anchor.png"
+    output = tmp_path / "preview.mp4"
+    frame_pattern = tmp_path / "frame-%02d.png"
+    Image.new("RGB", (64, 64), (0, 255, 0)).save(anchor)
+    subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x64:r=16:d=0.25",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    _postprocess_video(
+        source,
+        output,
+        fps=16,
+        first_frame=anchor,
+    )
+    subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-i",
+            str(output),
+            "-frames:v",
+            "2",
+            str(frame_pattern),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    first_mean = ImageStat.Stat(Image.open(tmp_path / "frame-01.png")).mean
+    second_mean = ImageStat.Stat(Image.open(tmp_path / "frame-02.png")).mean
+    assert first_mean[1] > 220
+    assert first_mean[0] < 30
+    assert second_mean[0] > 220
+    assert second_mean[1] < 30
 
 
 def test_vace_preflight_blocks_insufficient_worker_ram() -> None:

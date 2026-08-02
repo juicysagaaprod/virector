@@ -26,7 +26,10 @@ from virector.workers.capability_router import (
 )
 from virector.workers.dialogue import require_dialogue_provider
 from virector.workers.performance import PerformanceWorker
-from virector.workers.vace_diffusers import build_first_frame_condition
+from virector.workers.vace_diffusers import (
+    build_first_frame_condition,
+    retain_anchor_as_first_frame,
+)
 
 
 def _two_images(tmp_path: Path) -> tuple[Path, Path]:
@@ -173,6 +176,28 @@ def test_vace_first_frame_condition_retains_anchor_and_generates_future_frames(
     assert video[0].size == (480, 272)
     assert mask[0].getextrema() == (0, 0)
     assert all(frame.getextrema() == (255, 255) for frame in mask[1:])
+
+
+def test_vace_replaces_decoded_first_frame_with_exact_anchor(tmp_path: Path) -> None:
+    anchor = tmp_path / "anchor.png"
+    Image.new("RGB", (32, 48), (12, 34, 56)).save(anchor)
+    generated = [
+        Image.new("RGB", (16, 16), (200, 0, 0)),
+        Image.new("RGB", (16, 16), (0, 0, 200)),
+    ]
+
+    retained = retain_anchor_as_first_frame(
+        generated,
+        anchor,
+        width=24,
+        height=40,
+    )
+
+    assert retained is not generated
+    assert retained[0].size == (24, 40)
+    assert retained[0].getpixel((12, 20)) == (12, 34, 56)
+    assert retained[1] is generated[1]
+    assert generated[0].getpixel((0, 0)) == (200, 0, 0)
 
 
 def test_compiled_model_prompt_resolves_aliases_to_conditioning_positions(

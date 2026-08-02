@@ -76,6 +76,13 @@ official first-frame R2V control: the first frame is retained by a black mask,
 while later neutral frames have white generation masks. Character and world
 images remain separate reference inputs.
 
+The black mask is a model-conditioning contract, not a promise that the VAE
+decoder will reproduce the conditioned pixels exactly. Virector therefore also
+replaces VACE's decoded frame zero with the scene anchor before frame-rate
+interpolation and overlays that anchor on delivery frame zero in the final
+FFmpeg encode. This keeps the exact scene composition at the clip boundary
+while allowing subsequent frames to be generated normally.
+
 Every eligible job now saves:
 
 - `character_reference.png`

@@ -74,6 +74,7 @@ def _postprocess_video(
     height: int | None = None,
     fps: int | None = None,
     interpolate: bool = False,
+    first_frame: Path | None = None,
 ) -> None:
     filters: list[str] = []
     if fps is not None:
@@ -95,7 +96,28 @@ def _postprocess_video(
         "-i",
         str(source),
     ]
-    if filters:
+    if first_frame is not None:
+        command.extend(["-i", str(first_frame)])
+        base_filter = ",".join(filters) if filters else "null"
+        anchor_filter = (
+            f"scale={width}:{height}:flags=lanczos"
+            if width is not None and height is not None
+            else "null"
+        )
+        command.extend(
+            [
+                "-filter_complex",
+                (
+                    f"[0:v]{base_filter}[base];"
+                    f"[1:v]{anchor_filter}[anchor];"
+                    "[base][anchor]overlay=enable='eq(n,0)':"
+                    "eof_action=pass:shortest=0[video]"
+                ),
+                "-map",
+                "[video]",
+            ]
+        )
+    elif filters:
         command.extend(["-vf", ",".join(filters)])
     command.extend(
         [

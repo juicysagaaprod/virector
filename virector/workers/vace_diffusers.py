@@ -24,6 +24,41 @@ MINIMUM_RUNTIME_RAM_GB = 10.0
 RECOMMENDED_RUNTIME_RAM_GB = 24.0
 
 
+def load_anchor_frame(anchor: Path, *, width: int, height: int) -> Any:
+    """Load one detached RGB anchor at the exact VACE canvas size."""
+
+    from PIL import Image, ImageOps
+
+    with Image.open(anchor) as source:
+        return ImageOps.fit(
+            source.convert("RGB"),
+            (width, height),
+            method=Image.Resampling.LANCZOS,
+        )
+
+
+def retain_anchor_as_first_frame(
+    frames: list[Any],
+    anchor: Path,
+    *,
+    width: int,
+    height: int,
+) -> list[Any]:
+    """Replace VACE's reconstructed frame zero with the exact scene anchor.
+
+    VACE's black first-frame mask supplies latent conditioning, but the decoded
+    result is still a VAE reconstruction. Replacing frame zero before temporal
+    interpolation prevents the generated reconstruction from becoming the
+    continuity boundary for the delivered clip.
+    """
+
+    if not frames:
+        raise RuntimeError("VACE returned no frames to retain the scene anchor in.")
+    retained = list(frames)
+    retained[0] = load_anchor_frame(anchor, width=width, height=height)
+    return retained
+
+
 def build_vace_prompt(spec: ShotSpec) -> str:
     """Put compiled image bindings before prose so VACE sees them first."""
 
@@ -73,14 +108,9 @@ def build_first_frame_condition(
     neutral gray source frame and white mask, matching the upstream VACE guide.
     """
 
-    from PIL import Image, ImageOps
+    from PIL import Image
 
-    with Image.open(anchor) as source:
-        first = ImageOps.fit(
-            source.convert("RGB"),
-            (width, height),
-            method=Image.Resampling.LANCZOS,
-        )
+    first = load_anchor_frame(anchor, width=width, height=height)
     gray = Image.new("RGB", (width, height), (127, 127, 127))
     retained = Image.new("L", (width, height), 0)
     generated = Image.new("L", (width, height), 255)
@@ -401,8 +431,14 @@ class DiffusersVaceBackend(VaceBackend):
 
         output = job.output_dir / "preview.mp4"
         native_output = job.output_dir / "preview-native.mp4"
-        export_to_video(
+        retained_frames = retain_anchor_as_first_frame(
             result.frames[0],
+            anchor,
+            width=job.spec.width,
+            height=job.spec.height,
+        )
+        export_to_video(
+            retained_frames,
             str(native_output),
             fps=self.settings.vace_fps,
         )
@@ -419,6 +455,7 @@ class DiffusersVaceBackend(VaceBackend):
             height=output_height,
             fps=job.spec.fps,
             interpolate=job.spec.fps != self.settings.vace_fps,
+            first_frame=anchor,
         )
         elapsed_seconds = time.perf_counter() - started
         metrics = {
@@ -441,6 +478,12 @@ class DiffusersVaceBackend(VaceBackend):
             "torch_version": torch.__version__,
             "diffusers_version": diffusers.__version__,
             "output_path": str(output),
+            "first_frame_retention": {
+                "conditioning_mask": "black-retained",
+                "decoded_frame_replaced": True,
+                "delivery_frame_overlaid": True,
+                "anchor_path": str(anchor),
+            },
             "quality_scores": {
                 "character_reference": None,
                 "environment_reference": None,
