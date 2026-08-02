@@ -61,6 +61,16 @@ function fileSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function videoFileName(shotTitle: string, jobId: string) {
+  const slug = shotTitle
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+  return `${slug || "virector-shot"}-${jobId.slice(0, 8)}.mp4`;
+}
+
 function promptReferenceTags(value: string) {
   const normalized = value.replace(
     /\b(image|video|audio)\s*#?\s*(\d+)\b/gi,
@@ -120,6 +130,7 @@ export default function DirectorStudio() {
   const [seed, setSeed] = useState(42);
   const [status, setStatus] = useState("Ready for direction.");
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoDownloadName, setVideoDownloadName] = useState("virector-shot.mp4");
   const [isRendering, setIsRendering] = useState(false);
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -327,7 +338,10 @@ export default function DirectorStudio() {
         if (!videoResponse.ok) {
           throw new Error("The rendered video could not be loaded.");
         }
-        setVideoUrl(URL.createObjectURL(await videoResponse.blob()));
+        const videoBlobUrl = URL.createObjectURL(await videoResponse.blob());
+        setVideoDownloadName(videoFileName(title, jobId));
+        setVideoUrl(videoBlobUrl);
+        setStatus(`Video ready to play or download. Job: ${jobId}`);
         return;
       }
     }
@@ -354,6 +368,7 @@ export default function DirectorStudio() {
     setIsRendering(true);
     if (videoUrl?.startsWith("blob:")) URL.revokeObjectURL(videoUrl);
     setVideoUrl(null);
+    setVideoDownloadName("virector-shot.mp4");
     setStatus("Submitting the directed shot to Virector…");
 
     const form = new FormData();
@@ -580,9 +595,16 @@ export default function DirectorStudio() {
           <div className="panel-heading"><div><span className="step">03</span><h2>Shot output</h2></div></div>
           <div className={`video-stage ${videoUrl ? "has-video" : ""}`}>
             {videoUrl ? <video src={videoUrl} controls playsInline /> : (
-              <div className="video-empty"><span className="play-mark">▶</span><strong>Your directed video will appear here</strong><span>No separate start-frame result</span></div>
+              <div className="video-empty"><span className="play-mark">▶</span><strong>Your directed video will appear here</strong></div>
             )}
           </div>
+          {videoUrl && (
+            <div className="video-actions">
+              <a href={videoUrl} download={videoDownloadName}>
+                Download video <span aria-hidden="true">↓</span>
+              </a>
+            </div>
+          )}
           <div className="settings-grid">
             <label className="wide"><span>Shot title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
             <label><span>Aspect ratio</span><select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}><option>9:16</option><option>16:9</option><option>4:5</option><option>1:1</option></select></label>

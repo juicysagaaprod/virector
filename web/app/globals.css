@@ -561,11 +561,6 @@ label {
   text-align: center;
 }
 
-.video-empty span:last-child {
-  color: #8d9088;
-  font-size: 0.78rem;
-}
-
 .play-mark {
   width: 58px;
   height: 58px;
@@ -575,6 +570,35 @@ label {
   border: 1px solid #4d5148;
   border-radius: 50%;
   color: var(--acid);
+}
+
+.video-actions {
+  margin-top: 0.75rem;
+}
+
+.video-actions a {
+  min-height: 44px;
+  padding: 0 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--ink);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--acid);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
+  transition: transform 160ms ease, filter 160ms ease;
+}
+
+.video-actions a:hover {
+  filter: brightness(0.96);
+  transform: translateY(-1px);
+}
+
+.video-actions a span {
+  font-size: 1.2rem;
 }
 
 .settings-grid {
