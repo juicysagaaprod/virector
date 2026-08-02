@@ -26,6 +26,16 @@ const mediaFields: Record<MediaType, string> = {
   audio: "reference_audio",
 };
 
+const apiOrigin = (process.env.NEXT_PUBLIC_VIRECTOR_API_URL ?? "").replace(
+  /\/$/,
+  "",
+);
+
+function apiUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) return path;
+  return apiOrigin ? `${apiOrigin}${path}` : path;
+}
+
 type RenderResponse = {
   job_id: string;
   status: string;
@@ -133,7 +143,7 @@ export default function DirectorStudio() {
   const referenceCount = referenceTags.length;
 
   useEffect(() => {
-    fetch("/api/health")
+    fetch(apiUrl("/api/health"))
       .then((response) => {
         if (!response.ok) throw new Error("Backend unavailable");
         return response.json();
@@ -283,10 +293,10 @@ export default function DirectorStudio() {
     for (let attempt = 0; attempt < 600; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
       let headers = await authHeaders();
-      let response = await fetch(`/api/renders/${jobId}`, { headers });
+      let response = await fetch(apiUrl(`/api/renders/${jobId}`), { headers });
       if (response.status === 401 && supabase) {
         headers = await authHeaders(true);
-        response = await fetch(`/api/renders/${jobId}`, { headers });
+        response = await fetch(apiUrl(`/api/renders/${jobId}`), { headers });
       }
       const payload = await responsePayload(response);
       if (response.status === 404 && attempt < 5) continue;
@@ -313,7 +323,7 @@ export default function DirectorStudio() {
         if (!render.video_url) {
           throw new Error("Render completed without a video output.");
         }
-        const videoResponse = await fetch(render.video_url, { headers });
+        const videoResponse = await fetch(apiUrl(render.video_url), { headers });
         if (!videoResponse.ok) {
           throw new Error("The rendered video could not be loaded.");
         }
@@ -362,7 +372,7 @@ export default function DirectorStudio() {
 
     try {
       const headers = await authHeaders();
-      const response = await fetch("/api/renders", {
+      const response = await fetch(apiUrl("/api/renders"), {
         method: "POST",
         headers,
         body: form,

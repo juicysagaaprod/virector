@@ -1,0 +1,53 @@
+services:
+  - type: web
+    name: virector-api
+    runtime: docker
+    repo: https://github.com/juicysagaaprod/virector
+    branch: main
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: VIRECTOR_ENVIRONMENT
+        value: staging
+      - key: VIRECTOR_STORAGE_BACKEND
+        value: s3
+      - key: VIRECTOR_JOB_REPOSITORY_BACKEND
+        value: postgres
+      - key: VIRECTOR_WORKER_MODE
+        value: mock
+      - key: VIRECTOR_AUTH_REQUIRED
+        value: "true"
+      - key: VIRECTOR_CORS_ORIGINS
+        value: https://virector.netlify.app
+      - key: VIRECTOR_S3_REGION
+        value: auto
+      - key: VIRECTOR_S3_KEY_PREFIX
+        value: virector-staging
+      - key: VIRECTOR_S3_PRESIGNED_URL_TTL_SECONDS
+        value: "900"
+      - key: VIRECTOR_DATABASE_POOL_MIN_SIZE
+        value: "1"
+      - key: VIRECTOR_DATABASE_POOL_MAX_SIZE
+        value: "5"
+      - key: VIRECTOR_DATABASE_POOL_TIMEOUT_SECONDS
+        value: "10"
+      - key: VIRECTOR_SUPABASE_JWT_AUDIENCE
+        value: authenticated
+      - key: VIRECTOR_S3_ENDPOINT_URL
+        sync: false
+      - key: VIRECTOR_S3_BUCKET
+        sync: false
+      - key: VIRECTOR_S3_ACCESS_KEY_ID
+        sync: false
+      - key: VIRECTOR_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: VIRECTOR_DATABASE_URL
+        sync: false
+      - key: VIRECTOR_SUPABASE_URL
+        sync: false
+      - key: VIRECTOR_SUPABASE_PUBLISHABLE_KEY
+        sync: false
