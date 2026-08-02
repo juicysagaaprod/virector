@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     supabase_publishable_key: str | None = Field(default=None, repr=False)
     supabase_jwt_audience: str = "authenticated"
     auth_required: bool = False
+    enable_studio: bool = True
     models_dir_override: Path | None = Field(
         default=None,
         validation_alias="VIRECTOR_MODELS_DIR",

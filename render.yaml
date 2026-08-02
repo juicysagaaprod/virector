@@ -21,6 +21,8 @@ services:
         value: mock
       - key: VIRECTOR_AUTH_REQUIRED
         value: "true"
+      - key: VIRECTOR_ENABLE_STUDIO
+        value: "false"
       - key: VIRECTOR_CORS_ORIGINS
         value: https://virector.netlify.app
       - key: VIRECTOR_S3_REGION

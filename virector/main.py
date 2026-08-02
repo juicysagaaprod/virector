@@ -1,13 +1,11 @@
 from contextlib import asynccontextmanager
 
-import gradio as gr
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from virector.api import build_api
 from virector.config import get_settings
 from virector.services.jobs import JobService
-from virector.ui.studio import create_studio
 from virector.workers.factory import create_worker
 
 settings = get_settings()
@@ -39,14 +37,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(build_api(job_service))
-app = gr.mount_gradio_app(app, create_studio(job_service), path="/studio")
+if settings.enable_studio:
+    import gradio as gr
+
+    from virector.ui.studio import create_studio
+
+    app = gr.mount_gradio_app(app, create_studio(job_service), path="/studio")
 
 
 @app.get("/")
 def root() -> dict[str, str]:
-    return {
+    links = {
         "name": "Virector",
-        "studio": "/studio",
         "docs": "/docs",
         "health": "/api/health",
     }
+    if settings.enable_studio:
+        links["studio"] = "/studio"
+    return links
