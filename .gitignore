@@ -10,3 +10,7 @@ __pycache__/
 *.pyc
 data/
 outputs/
+
+# Local Netlify folder
+.netlify
+web/out/

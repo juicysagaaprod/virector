@@ -1,8 +1,8 @@
 [build]
   base = "web"
   command = "npm run build"
-  publish = ".next"
+  publish = "out"
 
 [build.environment]
   NODE_VERSION = "24"
-
+  VIRECTOR_STATIC_EXPORT = "true"
