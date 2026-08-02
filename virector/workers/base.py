@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
-from virector.models.omni_asset import OmniMediaType
+from virector.models.omni_asset import OmniMediaType, ReferenceRole
 from virector.models.shot_spec import ShotSpec
 
 
@@ -14,6 +14,10 @@ class ReferenceAsset:
     path: Path
     media_type: OmniMediaType = OmniMediaType.image
     strength: float = 0.9
+    asset_id: str | None = None
+    role: ReferenceRole | None = None
+    prompt_alias: str | None = None
+    priority: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,8 @@ class RenderJob:
     reference_videos: tuple[Path, ...] = ()
     reference_audio: tuple[Path, ...] = ()
     reference_assets: tuple[ReferenceAsset, ...] = ()
+    continuity_frame: Path | None = None
+    compiled_prompt_path: Path | None = None
     progress_callback: Callable[[int, str], None] | None = None
 
 

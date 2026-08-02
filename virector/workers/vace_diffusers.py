@@ -1,6 +1,8 @@
 import importlib.util
 import json
+import platform
 import shutil
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -55,6 +57,36 @@ def build_vace_prompt(spec: ShotSpec) -> str:
         f"{contract}\n\n"
         "Directed scene and action:\n"
         f"{spec.prompt.strip()}"
+    )
+
+
+def build_first_frame_condition(
+    anchor: Path,
+    *,
+    width: int,
+    height: int,
+    frame_count: int,
+) -> tuple[list[Any], list[Any]]:
+    """Create official VACE first-frame R2V video/mask inputs.
+
+    The retained first frame has a black mask; generated future frames use a
+    neutral gray source frame and white mask, matching the upstream VACE guide.
+    """
+
+    from PIL import Image, ImageOps
+
+    with Image.open(anchor) as source:
+        first = ImageOps.fit(
+            source.convert("RGB"),
+            (width, height),
+            method=Image.Resampling.LANCZOS,
+        )
+    gray = Image.new("RGB", (width, height), (127, 127, 127))
+    retained = Image.new("L", (width, height), 0)
+    generated = Image.new("L", (width, height), 255)
+    return (
+        [first] + [gray.copy() for _ in range(frame_count - 1)],
+        [retained] + [generated.copy() for _ in range(frame_count - 1)],
     )
 
 
@@ -320,6 +352,7 @@ class DiffusersVaceBackend(VaceBackend):
                 "segment. Continuation chaining is not connected yet."
             )
 
+        import diffusers
         import torch
         from diffusers.utils import export_to_video
         from PIL import Image
@@ -338,9 +371,25 @@ class DiffusersVaceBackend(VaceBackend):
             self.settings.vace_max_frames,
         )
         generator = torch.Generator(device="cuda").manual_seed(job.spec.seed)
+        prompt = (
+            job.compiled_prompt_path.read_text(encoding="utf-8")
+            if job.compiled_prompt_path is not None
+            and job.compiled_prompt_path.is_file()
+            else build_vace_prompt(job.spec)
+        )
+        anchor = job.continuity_frame or job.start_frame
+        control_video, control_mask = build_first_frame_condition(
+            anchor,
+            width=job.spec.width,
+            height=job.spec.height,
+            frame_count=frame_count,
+        )
+        started = time.perf_counter()
         result = pipeline(
-            prompt=build_vace_prompt(job.spec),
+            prompt=prompt,
             negative_prompt=job.spec.negative_prompt,
+            video=control_video,
+            mask=control_mask,
             reference_images=references,
             height=job.spec.height,
             width=job.spec.width,
@@ -370,5 +419,38 @@ class DiffusersVaceBackend(VaceBackend):
             height=output_height,
             fps=job.spec.fps,
             interpolate=job.spec.fps != self.settings.vace_fps,
+        )
+        elapsed_seconds = time.perf_counter() - started
+        metrics = {
+            "version": 1,
+            "job_id": job.job_id,
+            "model": self.settings.vace_model_name,
+            "checkpoint_repo": self.settings.vace_model_repo,
+            "checkpoint_path": str(self.settings.vace_checkpoint_path),
+            "provider_route": "vace-r2v-first-frame",
+            "seed": job.spec.seed,
+            "resolution": {"width": job.spec.width, "height": job.spec.height},
+            "native_frames": frame_count,
+            "native_fps": self.settings.vace_fps,
+            "delivery_fps": job.spec.fps,
+            "inference_steps": self.settings.vace_inference_steps,
+            "guidance_scale": self.settings.vace_guidance_scale,
+            "gpu_type": torch.cuda.get_device_name(0),
+            "gpu_seconds": round(elapsed_seconds, 3),
+            "python_version": platform.python_version(),
+            "torch_version": torch.__version__,
+            "diffusers_version": diffusers.__version__,
+            "output_path": str(output),
+            "quality_scores": {
+                "character_reference": None,
+                "environment_reference": None,
+                "lip_sync": None,
+            },
+            "manual_pass": None,
+            "manual_notes": "Pending visual inspection.",
+        }
+        (job.output_dir / "render_metrics.json").write_text(
+            json.dumps(metrics, indent=2),
+            encoding="utf-8",
         )
         return output

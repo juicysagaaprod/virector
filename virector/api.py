@@ -39,6 +39,7 @@ from virector.services.references import (
     validate_prompt_reference_tags,
 )
 from virector.services.storage import ArtifactStorageError
+from virector.services.timeline import timeline_from_director_plan
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +232,12 @@ def build_api(
             )
             validate_prompt_reference_tags(direction_prompt, directives)
             width, height = RESOLUTION_PRESETS[aspect_ratio]
+            timeline = timeline_from_director_plan(director_plan)
+            dialogue_text = "\n".join(
+                cue.text
+                for segment in director_plan.segments
+                for cue in segment.dialogue
+            ) or None
             spec = ShotSpec(
                 title=title or "Untitled shot",
                 prompt=direction_prompt.strip(),
@@ -238,12 +245,16 @@ def build_api(
                 video_model=video_model,
                 reference_mode="omni",
                 references=directives,
+                timeline=timeline,
                 aspect_ratio=aspect_ratio,
                 output_resolution=output_resolution,
                 width=width,
                 height=height,
                 duration_seconds=director_plan.duration_seconds,
                 seed=seed,
+                dialogue_text=dialogue_text,
+                generate_speech=bool(dialogue_text) and not audio_uploads,
+                lip_sync_enabled=bool(dialogue_text),
             )
         except (ValidationError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

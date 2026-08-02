@@ -12,6 +12,7 @@ from virector.models.omni_asset import (
     OmniMediaType,
     ReferenceBinding,
     ReferenceOperation,
+    ReferenceRole,
 )
 from virector.services.references import normalize_reference_mentions
 
@@ -243,12 +244,27 @@ def _omni_asset(
     media_type: OmniMediaType = OmniMediaType.image,
 ) -> PlanReference:
     roles = _asset_roles(description, media_type)
+    if media_type == OmniMediaType.audio:
+        reference_role = ReferenceRole.AUDIO
+    elif media_type == OmniMediaType.video:
+        reference_role = (
+            ReferenceRole.CAMERA
+            if AssetRole.camera in roles and AssetRole.motion not in roles
+            else ReferenceRole.MOTION
+        )
+    elif AssetRole.environment in roles:
+        reference_role = ReferenceRole.WORLD_ENVIRONMENT
+    elif AssetRole.character_identity in roles:
+        reference_role = ReferenceRole.CHARACTER_IDENTITY
+    else:
+        reference_role = ReferenceRole.PROP
     return PlanReference(
         index=index,
         tag=tag.lower(),
         media_type=media_type,
         description=description.strip(),
         roles=roles,
+        reference_role=reference_role,
         identity_group=_identity_group(description, roles),
     )
 
@@ -323,7 +339,33 @@ def _enrich_unlabelled_visual_roles(
         roles = _asset_roles(description, asset.media_type)
         asset.description = description
         asset.roles = roles
+        asset.reference_role = (
+            ReferenceRole.WORLD_ENVIRONMENT
+            if AssetRole.environment in roles
+            else ReferenceRole.CHARACTER_IDENTITY
+            if AssetRole.character_identity in roles
+            else ReferenceRole.PROP
+        )
         asset.identity_group = _identity_group(description, roles)
+
+
+def _apply_two_image_legacy_contract(assets: list[PlanReference]) -> None:
+    """Apply the documented @image1 character/@image2 world legacy mapping."""
+
+    images = [asset for asset in assets if asset.media_type == OmniMediaType.image]
+    by_tag = {asset.tag: asset for asset in images}
+    character = by_tag.get("@image1")
+    world = by_tag.get("@image2")
+    if character is not None:
+        character.description = "Primary character identity and wardrobe"
+        character.roles = [AssetRole.character_identity, AssetRole.wardrobe]
+        character.reference_role = ReferenceRole.CHARACTER_IDENTITY
+        character.identity_group = "primary-character"
+    if world is not None:
+        world.description = "World environment and location design"
+        world.roles = [AssetRole.environment, AssetRole.composition]
+        world.reference_role = ReferenceRole.WORLD_ENVIRONMENT
+        world.identity_group = None
 
 
 def _reference_operations(
@@ -776,6 +818,8 @@ def compile_director_plan(
     references.sort(key=lambda reference: (media_order[reference.media_type], reference.index))
     _enrich_unlabelled_visual_roles(references, prompt)
     _enrich_nonvisual_roles(references, prompt)
+    if not has_reference_definitions:
+        _apply_two_image_legacy_contract(references)
 
     reference_header = re.search(
         r"(?mi)^\s*(?:Image|Video|Audio) References\s*$",

@@ -1,3 +1,4 @@
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -10,7 +11,9 @@ from virector.models.conditioning import (
 from virector.models.director_plan import DirectorPlan, DirectorSegment
 from virector.models.omni_asset import BindingModality, OmniMediaType
 from virector.models.shot_spec import ShotSpec
+from virector.services.prompt_compiler import compile_model_prompt
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
+from virector.workers.capability_router import ShotCapabilityRouter
 from virector.workers.conditioning import ConditioningRouter
 from virector.workers.wan_animate import WanAnimateUnavailableError, WanAnimateWorker
 
@@ -146,6 +149,38 @@ class FfmpegVideoAssembler:
         return output
 
 
+class FfmpegFrameExtractor:
+    """Extract the actual final decoded frame for inter-shot continuity."""
+
+    @staticmethod
+    def extract(video: Path, output: Path) -> Path:
+        executable = FfmpegVideoAssembler._executable()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        completed = subprocess.run(
+            [
+                executable,
+                "-y",
+                "-sseof",
+                "-0.08",
+                "-i",
+                str(video),
+                "-frames:v",
+                "1",
+                str(output),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0 or not output.is_file():
+            detail = completed.stderr.strip().splitlines()
+            raise PerformanceAssemblyError(
+                "Could not extract the previous shot continuity frame: "
+                + (detail[-1] if detail else "FFmpeg returned no output.")
+            )
+        return output
+
+
 class PerformanceWorker(VideoWorker):
     """Execute a DirectorPlan shot-by-shot, then assemble one final video."""
 
@@ -175,6 +210,41 @@ class PerformanceWorker(VideoWorker):
     def _write_conditioning_plan(job: RenderJob, plan: ConditioningPlan) -> None:
         (job.output_dir / "conditioning_plan.json").write_text(
             plan.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+
+    def _write_capability_plan(self, job: RenderJob) -> None:
+        action_provider = {
+            "vace": "vace-r2v",
+            "ltx": "ltx-image-to-video",
+        }.get(self.segment_worker.mode)
+        router = ShotCapabilityRouter(action_provider=action_provider)
+        beats = job.spec.timeline
+        if not beats:
+            return
+        payload = {
+            "version": 1,
+            "shots": [
+                {
+                    "shot_id": beat.shot_id,
+                    "routes": [
+                        {
+                            "capability": route.capability.value,
+                            "provider": route.provider,
+                            "status": route.status.value,
+                            "reason": route.reason,
+                        }
+                        for route in router.route(
+                            beat,
+                            lip_sync_enabled=job.spec.lip_sync_enabled,
+                        )
+                    ],
+                }
+                for beat in beats
+            ],
+        }
+        (job.output_dir / "capability_plan.json").write_text(
+            json.dumps(payload, indent=2),
             encoding="utf-8",
         )
 
@@ -230,6 +300,7 @@ class PerformanceWorker(VideoWorker):
         segment: DirectorSegment,
         output_dir: Path,
         conditioning_plan: ConditioningPlan | None = None,
+        continuity_frame: Path | None = None,
     ) -> RenderJob:
         visual_binding_tags = {
             tag
@@ -249,6 +320,8 @@ class PerformanceWorker(VideoWorker):
             if (
                 not selected_tags
                 or asset.tag in selected_tags
+                or asset.role is not None
+                and asset.role.value in {"character_identity", "world_environment"}
                 or (
                     asset.media_type != OmniMediaType.image
                     and asset.tag in conditioning_tags
@@ -274,12 +347,26 @@ class PerformanceWorker(VideoWorker):
         )
         if not selected_images:
             selected_images = job.reference_images
-        start_frame = selected_images[0] if selected_images else job.start_frame
-        segment_prompt = build_segment_prompt(
-            plan,
-            segment,
-            conditioning_plan,
-        )[:20_000]
+        start_frame = continuity_frame or job.continuity_frame or (
+            selected_images[0] if selected_images else job.start_frame
+        )
+        beat = (
+            job.spec.timeline[segment.index - 1]
+            if len(job.spec.timeline) >= segment.index
+            else None
+        )
+        if beat is not None:
+            segment_prompt = compile_model_prompt(
+                job.spec,
+                beat,
+                selected_assets,
+            )[:20_000]
+        else:
+            segment_prompt = build_segment_prompt(
+                plan,
+                segment,
+                conditioning_plan,
+            )[:20_000]
         segment_title = f"{job.spec.title} — Shot {segment.index}"[:120]
         spec = ShotSpec.model_validate(
             {
@@ -287,10 +374,13 @@ class PerformanceWorker(VideoWorker):
                 "title": segment_title,
                 "prompt": segment_prompt,
                 "director_plan": None,
+                "timeline": [],
                 "duration_seconds": segment.duration_seconds,
                 "seed": (job.spec.seed + segment.index - 1) % 2_147_483_648,
             }
         )
+        compiled_prompt_path = output_dir / "compiled_model_prompt.txt"
+        compiled_prompt_path.write_text(segment_prompt, encoding="utf-8")
         return RenderJob(
             job_id=f"{job.job_id}-shot-{segment.index:02d}",
             output_dir=output_dir,
@@ -300,6 +390,8 @@ class PerformanceWorker(VideoWorker):
             reference_videos=selected_videos,
             reference_audio=selected_audio,
             reference_assets=selected_assets,
+            continuity_frame=start_frame,
+            compiled_prompt_path=compiled_prompt_path,
             progress_callback=job.progress_callback,
         )
 
@@ -310,6 +402,7 @@ class PerformanceWorker(VideoWorker):
 
         conditioning_plan = self.conditioning_router.compile(plan)
         self._write_conditioning_plan(job, conditioning_plan)
+        self._write_capability_plan(job)
         if len(plan.segments) == 1:
             segment_job = self._segment_job(
                 job,
@@ -339,6 +432,7 @@ class PerformanceWorker(VideoWorker):
         segments_dir = job.output_dir / "segments"
         segments_dir.mkdir(parents=True, exist_ok=True)
         rendered_segments: list[Path] = []
+        continuity_frame = job.continuity_frame
         total = len(plan.segments)
 
         for segment in plan.segments:
@@ -356,6 +450,7 @@ class PerformanceWorker(VideoWorker):
                 segment,
                 output_dir,
                 conditioning_plan,
+                continuity_frame,
             )
             result = self.segment_worker.render(segment_job)
             result = self._apply_motion_stage(
@@ -377,6 +472,23 @@ class PerformanceWorker(VideoWorker):
                     ),
                 )
             rendered_segments.append(result.video)
+            if not isinstance(self.assembler, FfmpegVideoAssembler):
+                # Injected assemblers are used by GPU-free contract tests; their
+                # placeholder segment bytes are intentionally not decodable.
+                continuity_frame = result.start_frame
+                continue
+            try:
+                continuity_frame = FfmpegFrameExtractor.extract(
+                    result.video,
+                    output_dir / "continuity-final-frame.png",
+                )
+            except PerformanceAssemblyError as exc:
+                return RenderResult(
+                    job_id=job.job_id,
+                    status="failed",
+                    start_frame=job.start_frame,
+                    message=str(exc),
+                )
 
         if job.progress_callback:
             job.progress_callback(90, "Assembling the final multi-shot video.")

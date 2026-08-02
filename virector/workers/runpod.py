@@ -204,20 +204,30 @@ class RunpodWorker(VideoWorker):
                     "media_type": asset.media_type.value,
                     "download_url": self._presigned_get(key),
                     "strength": asset.strength,
+                    "asset_id": asset.asset_id,
+                    "role": asset.role.value if asset.role else None,
+                    "prompt_alias": asset.prompt_alias,
+                    "priority": asset.priority,
                 }
             )
 
         output_key = self._key(job.job_id, "preview.mp4")
-        return (
-            {
+        payload = {
                 "job_id": job.job_id,
                 "shot_spec": job.spec.model_dump(mode="json"),
                 "references": references,
                 "output_upload_url": self._presigned_put(output_key),
                 "output_object_key": output_key,
-            },
-            output_key,
-        )
+        }
+        if job.continuity_frame is not None and job.continuity_frame.is_file():
+            anchor_key = self._key(job.job_id, "scene_anchor.png")
+            self.s3_client.upload_file(
+                str(job.continuity_frame),
+                self.settings.s3_bucket,
+                anchor_key,
+            )
+            payload["scene_anchor_download_url"] = self._presigned_get(anchor_key)
+        return payload, output_key
 
     @classmethod
     def _progress_update(cls, document: dict[str, Any]) -> tuple[int, str] | None:

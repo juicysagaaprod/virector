@@ -6,12 +6,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from PIL import Image
+
 from virector.config import Settings
-from virector.models.omni_asset import OmniMediaType
-from virector.models.shot_spec import ReferenceDirective, ShotSpec
+from virector.models.omni_asset import OmniMediaType, ReferenceRole
+from virector.models.shot_spec import ReferenceDirective, ShotBeat, ShotSpec
 from virector.services.compositor import (
     compose_start_frame,
-    prepare_reference_start_frame,
 )
 from virector.services.job_repository import (
     JobAssetRecord,
@@ -21,7 +22,16 @@ from virector.services.job_repository import (
     JobRepositoryError,
     create_job_repository,
 )
+from virector.services.prompt_compiler import compile_model_prompt
+from virector.services.reference_resolution import (
+    require_role,
+    resolve_reference_map,
+)
 from virector.services.references import build_reference_directives
+from virector.services.scene_anchor import (
+    CompositorSceneAnchorProvider,
+    SceneAnchorProvider,
+)
 from virector.services.storage import ArtifactStore, create_artifact_store
 from virector.workers.base import (
     ReferenceAsset,
@@ -47,11 +57,15 @@ class JobService:
         worker: VideoWorker,
         artifact_store: ArtifactStore | None = None,
         job_repository: JobRepository | None = None,
+        scene_anchor_provider: SceneAnchorProvider | None = None,
     ) -> None:
         self.settings = settings
         self.worker = worker
         self.artifact_store = artifact_store or create_artifact_store(settings)
         self.job_repository = job_repository or create_job_repository(settings)
+        self.scene_anchor_provider = (
+            scene_anchor_provider or CompositorSceneAnchorProvider()
+        )
 
     def healthcheck(self) -> None:
         self.job_repository.healthcheck()
@@ -348,6 +362,29 @@ class JobService:
                 for directive, path in zip(directives, saved_references, strict=True)
             )
 
+            resolved_map = resolve_reference_map(
+                directives,
+                saved_references,
+                spec.director_plan,
+            )
+            resolved_by_alias = {
+                asset.prompt_alias: asset for asset in resolved_map.assets
+            }
+            reference_assets = tuple(
+                ReferenceAsset(
+                    index=directive.index,
+                    tag=directive.tag,
+                    path=path,
+                    media_type=directive.media_type,
+                    strength=directive.strength,
+                    asset_id=resolved_by_alias[directive.tag].asset_id,
+                    role=resolved_by_alias[directive.tag].role,
+                    prompt_alias=resolved_by_alias[directive.tag].prompt_alias,
+                    priority=resolved_by_alias[directive.tag].priority,
+                )
+                for directive, path in zip(directives, saved_references, strict=True)
+            )
+
             artifacts = JobArtifacts(
                 job_id=job_id,
                 directory=job_dir,
@@ -370,10 +407,69 @@ class JobService:
                 for asset in reference_assets
                 if asset.media_type == OmniMediaType.audio
             )
-            prepare_reference_start_frame(
-                reference_path=image_assets[0].path,
-                spec=spec,
-                output_path=artifacts.start_frame,
+            resolved_map_path = job_dir / "resolved_reference_map.json"
+            resolved_map_path.write_text(
+                resolved_map.model_dump_json(indent=2),
+                encoding="utf-8",
+            )
+            character = require_role(resolved_map, ReferenceRole.CHARACTER_IDENTITY)
+            worlds = [
+                asset
+                for asset in resolved_map.assets
+                if asset.role == ReferenceRole.WORLD_ENVIRONMENT
+            ]
+            path_by_alias = {asset.tag: asset.path for asset in reference_assets}
+            with Image.open(path_by_alias[character.prompt_alias]) as source:
+                source.convert("RGB").save(
+                    job_dir / "character_reference.png",
+                    "PNG",
+                    optimize=True,
+                )
+            if len(worlds) > 1:
+                raise ValueError("Only one primary world_environment reference is allowed")
+            if worlds:
+                with Image.open(path_by_alias[worlds[0].prompt_alias]) as source:
+                    source.convert("RGB").save(
+                        job_dir / "world_reference.png",
+                        "PNG",
+                        optimize=True,
+                    )
+            scene_anchor_path = job_dir / "scene_anchor.png"
+            scene_anchor = self.scene_anchor_provider.generate(
+                reference_assets,
+                spec,
+                scene_anchor_path,
+            )
+            shutil.copy2(scene_anchor.path, artifacts.start_frame)
+
+            compiled_spec_path = job_dir / "compiled_shot_spec.json"
+            compiled_spec_path.write_text(
+                spec.model_dump_json(indent=2),
+                encoding="utf-8",
+            )
+            first_beat = (
+                spec.timeline[0]
+                if spec.timeline
+                else ShotBeat(
+                    shot_id="shot-01",
+                    start_seconds=0.0,
+                    duration_seconds=spec.duration_seconds,
+                    framing=spec.camera.shot_size,
+                    camera_motion=spec.camera.movement,
+                    subject_action=spec.character.action,
+                    expression=spec.character.expression,
+                    dialogue=spec.dialogue_text,
+                    dialogue_audio_uri=spec.dialogue_audio_uri,
+                )
+            )
+            compiled_prompt_path = job_dir / "compiled_model_prompt.txt"
+            compiled_prompt_path.write_text(
+                (
+                    compile_model_prompt(spec, first_beat, reference_assets)
+                    if worlds
+                    else spec.prompt
+                ),
+                encoding="utf-8",
             )
 
             payload = {
@@ -402,6 +498,10 @@ class JobService:
                     ],
                     "primary_reference": str(image_assets[0].path.resolve()),
                     "start_frame": str(artifacts.start_frame.resolve()),
+                    "scene_anchor": str(scene_anchor.path.resolve()),
+                    "scene_anchor_provider": scene_anchor.provider,
+                    "scene_anchor_is_fallback": scene_anchor.fallback,
+                    "resolved_reference_map": str(resolved_map_path.resolve()),
                 },
             }
             artifacts.shot_spec.write_text(
@@ -421,6 +521,10 @@ class JobService:
                     metadata={
                         "strength": asset.strength,
                         "media_type": asset.media_type.value,
+                        "asset_id": asset.asset_id,
+                        "role": asset.role.value if asset.role else None,
+                        "prompt_alias": asset.prompt_alias,
+                        "priority": asset.priority,
                     },
                 )
                 for asset in reference_assets
@@ -463,6 +567,8 @@ class JobService:
                     reference_videos=tuple(asset.path for asset in video_assets),
                     reference_audio=tuple(asset.path for asset in audio_assets),
                     reference_assets=reference_assets,
+                    continuity_frame=scene_anchor.path,
+                    compiled_prompt_path=compiled_prompt_path,
                     progress_callback=self._progress_reporter(job_id),
                 )
             )

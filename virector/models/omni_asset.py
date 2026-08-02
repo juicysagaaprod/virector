@@ -9,6 +9,19 @@ class OmniMediaType(str, Enum):
     audio = "audio"
 
 
+class ReferenceRole(str, Enum):
+    """Stable semantic role carried from upload through model invocation."""
+
+    CHARACTER_IDENTITY = "character_identity"
+    WORLD_ENVIRONMENT = "world_environment"
+    START_FRAME = "start_frame"
+    END_FRAME = "end_frame"
+    PROP = "prop"
+    MOTION = "motion"
+    CAMERA = "camera"
+    AUDIO = "audio"
+
+
 class AssetRole(str, Enum):
     character_identity = "character_identity"
     wardrobe = "wardrobe"
@@ -52,6 +65,7 @@ class OmniAsset(BaseModel):
     media_type: OmniMediaType
     description: str = Field(min_length=1, max_length=300)
     roles: list[AssetRole] = Field(default_factory=list, max_length=12)
+    reference_role: ReferenceRole | None = None
     identity_group: str | None = Field(default=None, max_length=120)
 
     @model_validator(mode="after")
@@ -65,6 +79,51 @@ class OmniAsset(BaseModel):
         if len(set(self.roles)) != len(self.roles):
             raise ValueError("OmniAsset roles must be unique")
         return self
+
+
+class ResolvedReferenceAsset(BaseModel):
+    """A validated alias-to-file mapping safe to pass between workers."""
+
+    asset_id: str = Field(min_length=1, max_length=160)
+    role: ReferenceRole
+    storage_uri: str = Field(min_length=1, max_length=4096)
+    prompt_alias: str = Field(pattern=r"^@(image[1-9]|video[1-3]|audio[1-3])$")
+    media_type: OmniMediaType
+    ordinal: int = Field(ge=1, le=12)
+    priority: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_role_modality(self) -> "ResolvedReferenceAsset":
+        if self.role == ReferenceRole.AUDIO and self.media_type != OmniMediaType.audio:
+            raise ValueError("The audio role requires an audio asset")
+        if self.role in {ReferenceRole.MOTION, ReferenceRole.CAMERA} and (
+            self.media_type == OmniMediaType.audio
+        ):
+            raise ValueError("Motion and camera roles cannot use audio assets")
+        return self
+
+
+class ResolvedReferenceMap(BaseModel):
+    """Debuggable, immutable reference resolution document for one job."""
+
+    version: int = 1
+    assets: list[ResolvedReferenceAsset] = Field(min_length=1, max_length=12)
+
+    @model_validator(mode="after")
+    def validate_unique_identifiers(self) -> "ResolvedReferenceMap":
+        for label, values in {
+            "asset IDs": [asset.asset_id for asset in self.assets],
+            "prompt aliases": [asset.prompt_alias for asset in self.assets],
+        }.items():
+            if len(values) != len(set(values)):
+                raise ValueError(f"Resolved reference {label} must be unique")
+        return self
+
+    def by_alias(self, alias: str) -> ResolvedReferenceAsset:
+        matches = [asset for asset in self.assets if asset.prompt_alias == alias]
+        if len(matches) != 1:
+            raise ValueError(f"Reference alias {alias} did not resolve exactly once")
+        return matches[0]
 
 
 class ReferenceBinding(BaseModel):

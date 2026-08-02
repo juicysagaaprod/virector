@@ -4,7 +4,7 @@ from pathlib import Path
 from PIL import Image
 
 from virector.config import Settings
-from virector.models.omni_asset import OmniMediaType
+from virector.models.omni_asset import OmniMediaType, ReferenceRole
 from virector.models.shot_spec import ReferenceDirective, ShotSpec
 from virector.services.jobs import JobService
 from virector.workers.base import RenderJob, RenderResult, VideoWorker
@@ -59,6 +59,21 @@ def test_job_service_retains_ordered_omni_references(tmp_path: Path) -> None:
         "@image1",
         "@image2",
     ]
+    assert [asset.role for asset in worker.job.reference_assets] == [
+        ReferenceRole.CHARACTER_IDENTITY,
+        ReferenceRole.WORLD_ENVIRONMENT,
+    ]
+    resolved = json.loads(
+        (worker.job.output_dir / "resolved_reference_map.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert [asset["role"] for asset in resolved["assets"]] == [
+        "character_identity",
+        "world_environment",
+    ]
+    assert (worker.job.output_dir / "scene_anchor.png").is_file()
+    assert (worker.job.output_dir / "compiled_model_prompt.txt").is_file()
     manifest = json.loads(
         (worker.job.output_dir / "shot_spec.json").read_text(encoding="utf-8")
     )

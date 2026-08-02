@@ -7,7 +7,7 @@ import requests
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
-from virector.models.omni_asset import OmniMediaType
+from virector.models.omni_asset import OmniMediaType, ReferenceRole
 from virector.models.shot_spec import ShotSpec
 from virector.workers.base import ReferenceAsset, RenderJob, VideoWorker
 
@@ -42,6 +42,10 @@ class RemoteReference(BaseModel):
     media_type: OmniMediaType = OmniMediaType.image
     download_url: str = Field(min_length=8, max_length=4096)
     strength: float = Field(default=0.9, ge=0.0, le=1.0)
+    asset_id: str | None = Field(default=None, max_length=160)
+    role: ReferenceRole | None = None
+    prompt_alias: str | None = Field(default=None, max_length=40)
+    priority: float = Field(default=1.0, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def validate_tag(self) -> "RemoteReference":
@@ -57,6 +61,7 @@ class RunpodRenderInput(BaseModel):
     references: list[RemoteReference] = Field(min_length=1, max_length=12)
     output_upload_url: str = Field(min_length=8, max_length=4096)
     output_object_key: str = Field(min_length=1, max_length=1024)
+    scene_anchor_download_url: str | None = Field(default=None, max_length=4096)
 
     @model_validator(mode="after")
     def validate_references(self) -> "RunpodRenderInput":
@@ -241,6 +246,10 @@ class RunpodPerformanceRuntime:
                         path=path,
                         media_type=reference.media_type,
                         strength=reference.strength,
+                        asset_id=reference.asset_id,
+                        role=reference.role,
+                        prompt_alias=reference.prompt_alias,
+                        priority=reference.priority,
                     )
                 )
 
@@ -259,17 +268,26 @@ class RunpodPerformanceRuntime:
                 for asset in assets
                 if asset.media_type == OmniMediaType.audio
             )
+            continuity_frame = image_assets[0].path
+            if payload.scene_anchor_download_url:
+                continuity_frame = job_dir / "scene_anchor.png"
+                self.file_client.download_reference(
+                    payload.scene_anchor_download_url,
+                    continuity_frame,
+                    OmniMediaType.image,
+                )
 
             result = self.worker.render(
                 RenderJob(
                     job_id=payload.job_id,
                     output_dir=job_dir,
-                    start_frame=image_assets[0].path,
+                    start_frame=continuity_frame,
                     spec=payload.shot_spec,
                     reference_images=tuple(asset.path for asset in image_assets),
                     reference_videos=tuple(asset.path for asset in video_assets),
                     reference_audio=tuple(asset.path for asset in audio_assets),
                     reference_assets=tuple(assets),
+                    continuity_frame=continuity_frame,
                     progress_callback=progress_callback,
                 )
             )

@@ -1,7 +1,7 @@
 import re
 from collections.abc import Sequence
 
-from virector.models.omni_asset import OmniMediaType
+from virector.models.omni_asset import OmniMediaType, ReferenceRole
 from virector.models.shot_spec import ReferenceDirective
 
 REFERENCE_TAG_PATTERN = re.compile(
@@ -58,6 +58,18 @@ def build_reference_directives(
             index=index,
             tag=f"@{media_type.value}{index}",
             media_type=media_type,
+            prompt_alias=f"@{media_type.value}{index}",
+            role=(
+                ReferenceRole.CHARACTER_IDENTITY
+                if media_type == OmniMediaType.image and index == 1
+                else ReferenceRole.WORLD_ENVIRONMENT
+                if media_type == OmniMediaType.image and index == 2
+                else ReferenceRole.AUDIO
+                if media_type == OmniMediaType.audio
+                else ReferenceRole.MOTION
+                if media_type == OmniMediaType.video
+                else ReferenceRole.PROP
+            ),
         )
         for index in range(1, reference_count + 1)
     ]

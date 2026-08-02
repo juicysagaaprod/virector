@@ -3,7 +3,7 @@ from enum import Enum
 from pydantic import BaseModel, Field, model_validator
 
 from virector.models.director_plan import DirectorPlan
-from virector.models.omni_asset import OmniMediaType
+from virector.models.omni_asset import OmniMediaType, ReferenceRole
 
 
 class AspectRatio(str, Enum):
@@ -24,6 +24,10 @@ class ReferenceDirective(BaseModel):
     tag: str = Field(pattern=r"^@(image[1-9]|video[1-3]|audio[1-3])$")
     media_type: OmniMediaType = OmniMediaType.image
     strength: float = Field(default=0.9, ge=0.0, le=1.0)
+    asset_id: str | None = Field(default=None, max_length=160)
+    role: ReferenceRole | None = None
+    prompt_alias: str | None = Field(default=None, max_length=40)
+    priority: float = Field(default=1.0, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def validate_tag(self) -> "ReferenceDirective":
@@ -34,7 +38,28 @@ class ReferenceDirective(BaseModel):
             )
         if self.tag != f"@{self.media_type.value}{self.index}":
             raise ValueError("Reference tag must match its media type and index")
+        if self.prompt_alias is not None and self.prompt_alias != self.tag:
+            raise ValueError("Reference prompt alias must match its stable tag")
         return self
+
+
+class ShotBeat(BaseModel):
+    """One independently renderable beat in a director-controlled timeline."""
+
+    shot_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$")
+    start_seconds: float = Field(ge=0.0, le=15.0)
+    duration_seconds: float = Field(gt=0.0, le=15.0)
+    framing: str = Field(default="medium", min_length=1, max_length=120)
+    camera_motion: str = Field(default="static", min_length=1, max_length=300)
+    subject_action: str = Field(min_length=1, max_length=3000)
+    expression: str = Field(default="natural", min_length=1, max_length=300)
+    dialogue: str | None = Field(default=None, max_length=4000)
+    dialogue_audio_uri: str | None = Field(default=None, max_length=4096)
+    transition: str = Field(default="cut", min_length=1, max_length=120)
+
+    @property
+    def end_seconds(self) -> float:
+        return self.start_seconds + self.duration_seconds
 
 
 class CameraDirection(BaseModel):
@@ -79,6 +104,7 @@ class ShotSpec(BaseModel):
     video_model: str = Field(default="ltx-video-2b-distilled", max_length=120)
     reference_mode: str = Field(default="omni", pattern="^(omni|layered)$")
     references: list[ReferenceDirective] = Field(default_factory=list, max_length=12)
+    timeline: list[ShotBeat] = Field(default_factory=list, max_length=20)
     aspect_ratio: AspectRatio = AspectRatio.portrait
     output_resolution: OutputResolution = OutputResolution.preview
     width: int = Field(default=480, ge=256, le=4096)
@@ -89,6 +115,13 @@ class ShotSpec(BaseModel):
     character: CharacterDirection = Field(default_factory=CharacterDirection)
     camera: CameraDirection = Field(default_factory=CameraDirection)
     lighting: LightingDirection = Field(default_factory=LightingDirection)
+    dialogue_text: str | None = Field(default=None, max_length=4000)
+    dialogue_audio_uri: str | None = Field(default=None, max_length=4096)
+    voice_profile: str | None = Field(default=None, max_length=200)
+    language: str = Field(default="en", min_length=2, max_length=20)
+    accent: str | None = Field(default=None, max_length=200)
+    generate_speech: bool = True
+    lip_sync_enabled: bool = True
 
     @model_validator(mode="after")
     def validate_aspect_orientation(self) -> "ShotSpec":
@@ -127,6 +160,18 @@ class ShotSpec(BaseModel):
                     f"{media_type.value} reference indexes must be contiguous "
                     "and start at one"
                 )
+        if self.timeline:
+            expected_start = 0.0
+            shot_ids: set[str] = set()
+            for beat in self.timeline:
+                if beat.shot_id in shot_ids:
+                    raise ValueError("Timeline shot IDs must be unique")
+                shot_ids.add(beat.shot_id)
+                if abs(beat.start_seconds - expected_start) > 0.001:
+                    raise ValueError("Timeline shots must be contiguous and start at zero")
+                expected_start = beat.end_seconds
+            if abs(expected_start - self.duration_seconds) > 0.001:
+                raise ValueError("Timeline duration must match shot duration")
         return self
 
 
