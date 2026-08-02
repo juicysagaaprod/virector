@@ -34,6 +34,7 @@ ltx = [
   "accelerate==1.14.0",
   "bitsandbytes==0.50.0",
   "diffusers==0.39.0",
+  "ftfy==6.3.1",
   "imageio[ffmpeg]==2.37.4",
   "protobuf==7.35.1",
   "sentencepiece==0.2.2",

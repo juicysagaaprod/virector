@@ -172,6 +172,7 @@ class DiffusersVaceBackend(VaceBackend):
                 "accelerate",
                 "bitsandbytes",
                 "diffusers",
+                "ftfy",
                 "huggingface_hub",
                 "imageio",
                 "torch",
